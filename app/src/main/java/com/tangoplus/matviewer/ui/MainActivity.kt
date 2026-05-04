@@ -1,5 +1,6 @@
 package com.tangoplus.matviewer.ui
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -17,10 +18,18 @@ import android.renderscript.Element
 import android.renderscript.RenderScript
 import android.renderscript.ScriptIntrinsicBlur
 import android.util.Log
+import android.util.Size
+import android.view.Surface
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import androidx.core.view.ViewCompat
@@ -36,37 +45,48 @@ import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
 import com.tangoplus.matviewer.R
 import com.tangoplus.matviewer.databinding.ActivityMainBinding
-import com.tangoplus.matviewer.domain.uil.HexUtil.applyAdaptiveDilation
-import com.tangoplus.matviewer.domain.uil.HexUtil.applyGaussianBlur
-import com.tangoplus.matviewer.domain.uil.HexUtil.applyWideBlur
-import com.tangoplus.matviewer.domain.uil.HexUtil.colorLUT
-import com.tangoplus.matviewer.domain.uil.HexUtil.extractBatteryCapacity
-import com.tangoplus.matviewer.domain.uil.HexUtil.findHeaderIndex
-import com.tangoplus.matviewer.domain.uil.HexUtil.normalizeData
+import com.tangoplus.matviewer.domain.util.HexUtil.applyAdaptiveDilation
+import com.tangoplus.matviewer.domain.util.HexUtil.applyGaussianBlur
+import com.tangoplus.matviewer.domain.util.HexUtil.applyWideBlur
+import com.tangoplus.matviewer.domain.util.HexUtil.colorLUT
+import com.tangoplus.matviewer.domain.util.HexUtil.extractBatteryCapacity
+import com.tangoplus.matviewer.domain.util.HexUtil.findHeaderIndex
+import com.tangoplus.matviewer.domain.util.HexUtil.normalizeData
 import androidx.core.graphics.scale
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.tangoplus.facebeautyexpert.domain.vision.pose.PoseLandmarkerHelper
+import com.tangoplus.matexample.PoseLandmarkAdapter
+import com.tangoplus.matviewer.domain.util.PermissionUtil.register
+import com.tangoplus.matviewer.domain.util.PermissionUtil.requestPermission
+import com.tangoplus.matviewer.domain.util.PermissionUtil.showPermissionDeniedDialog
+import com.tangoplus.matviewer.ui.view.OverlayView
 import com.tangoplus.matviewer.ui.vm.MainViewModel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListener {
 	private lateinit var bd: ActivityMainBinding
 	private val vm: MainViewModel by viewModels()
 	//  💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃
 	private lateinit var plh : PoseLandmarkerHelper
+	private var preview: Preview? = null
+	private var imageAnalyzer: ImageAnalysis? = null
+	private var camera: Camera? = null
+	private var cameraProvider: ProcessCameraProvider? = null
+	private var cameraFacing = CameraSelector.LENS_FACING_FRONT
+	private lateinit var backgroundExecutor: ExecutorService
 
 	//  👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣
-	private val ACTION_USB_PERMISSION = "com.tangoplus.matexample.USB_PERMISSION"
+	private val ACTION_USB_PERMISSION = "com.tangoplus.matviewer.USB_PERMISSION"
 	private var usbIoManager: SerialInputOutputManager? = null
 	private var port: UsbSerialPort? = null
 	private var connection : UsbDeviceConnection? = null
 	private var isRunning = false // 현재 수신 중인지 체크용 플래그
 	private var byteBuffer = byteArrayOf()
-	private val PACKET_SIZE = 71 // 구분자(4) + 헤더(3) + 데이터(64)
+	private val PACKET_SIZE = 67 // 구분자(4) + 헤더(3) + 데이터(64)
 	private val currentFrameData = mutableMapOf<Int, IntArray>()
 	private var currentBattery = 0 // 배터리 저장용
-
-
-
 
 	override fun onDestroy() {
 		super.onDestroy()
@@ -85,13 +105,28 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 			v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
 			insets
 		}
-		initPose()
+		// 💃💃💃💃💃💃💃💃
+		register(
+			activity = this,
+			onPermissionGranted = {
+				backgroundExecutor = Executors.newSingleThreadExecutor()
+				backgroundExecutor.execute { initPose() }
+				bd.viewFinder.post {
+					setUpCamera()
+				}
+			},
+			onPermissionDenied = {
+				// 권한 거부됨
+				showPermissionDeniedDialog(this)
+			}
+		)
+		requestPermission(this)
+		// 👣👣👣👣👣👣👣👣
 		val filter = IntentFilter().apply {
 			addAction(ACTION_USB_PERMISSION) // 기존 권한 요청 액션
 			addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED) // USB 꽂힘 감지
 			addAction(UsbManager.ACTION_USB_DEVICE_DETACHED) // USB 뽑힘 감지
 		}
-		Log.v("커넥트시작", "connect시작")
 		// Android 14(API 34) 이상 타겟팅 시 RECEIVER_NOT_EXPORTED 플래그 필요할 수 있음
 		ContextCompat.registerReceiver(
 			this,
@@ -102,7 +137,6 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 		connectUsbAndRead()
 
 		bd.btnStop.setOnClickListener { stopReading() }
-
 	}
 
 	//  💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃
@@ -131,23 +165,108 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 	}
 
 	override fun onError(error: String, errorCode: Int) {
-		TODO("Not yet implemented")
+		Log.e("PoseLandmarkerHelper", "error: $error")
+		Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
 	}
 
 	override fun onResults(resultBundle: PoseLandmarkerHelper.ResultBundle) {
-		TODO("Not yet implemented")
+		runOnUiThread {
+			vm.pResult = PoseLandmarkAdapter.toCustomPoseLandmarkResult(resultBundle.results.first())
+			if (vm.pResult != null) {
+				bd.overlay.setResults(
+					vm.pResult!!,
+					resultBundle.inputImageWidth,
+					resultBundle.inputImageHeight,
+					OverlayView.RunningMode.LIVE_STREAM
+				)
+				bd.overlay.invalidate()
+			}
+		}
 	}
+
+	private fun setUpCamera() {
+		val cameraProviderFuture =
+			ProcessCameraProvider.getInstance(this)
+		cameraProviderFuture.addListener(
+			{
+				// CameraProvider
+				cameraProvider = cameraProviderFuture.get()
+				// Build and bind the camera use cases
+				bindCameraUseCases()
+			}, ContextCompat.getMainExecutor(this)
+		)
+	}
+	@SuppressLint("UnsafeOptInUsageError")
+	private fun bindCameraUseCases() {
+		val cameraProvider = cameraProvider
+			?: throw IllegalStateException("Camera initialization failed.")
+
+		val cameraSelector =
+			CameraSelector.Builder().requireLensFacing(cameraFacing).build()
+
+		// 회전 정보 가져오기
+		val rotation = bd.viewFinder.display?.rotation ?: Surface.ROTATION_0
+		Log.d("RotationDebug", "Display Rotation: $rotation")
+
+		// 미리보기 설정
+		preview = Preview.Builder()
+			.setTargetResolution(Size(1920, 1080))
+			.setTargetRotation(rotation)
+			.build()
+
+		// 중요: 이 시점에서 surfaceProvider 설정
+		preview?.setSurfaceProvider(bd.viewFinder.surfaceProvider)
+
+		// 이미지 분석 설정
+		imageAnalyzer = ImageAnalysis.Builder()
+			.setTargetResolution(Size(1920, 1080))
+			.setTargetRotation(rotation)
+			.setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+			.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+			.build()
+			.also {
+				it.setAnalyzer(backgroundExecutor) { image ->
+					detectPose(image)
+				}
+			}
+		cameraProvider.unbindAll()
+
+		try {
+			camera = cameraProvider.bindToLifecycle(
+				this, cameraSelector, imageAnalyzer, preview
+			)
+		} catch (e: IndexOutOfBoundsException) {
+			Log.e("MSCameraIndex", "${e.message}")
+		} catch (e: IllegalArgumentException) {
+			Log.e("MSCameraIllegal", "${e.message}")
+		} catch (e: IllegalStateException) {
+			Log.e("MSCameraIllegal", "${e.message}")
+		}catch (e: NullPointerException) {
+			Log.e("MSCameraNull", "${e.message}")
+		} catch (e: java.lang.Exception) {
+			Log.e("MSCameraException", "${e.message}")
+		}
+	}
+	private fun detectPose(imageProxy: ImageProxy) {
+		if (this::plh.isInitialized) {
+			plh.detectLiveStream(
+				imageProxy = imageProxy,
+				isFrontCamera = cameraFacing == CameraSelector.LENS_FACING_FRONT
+			)
+		}
+		imageProxy.close()
+	}
+
 	//  👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣
 	private fun displayHeatmap() {
 		val rawHeight = 18
-		val squareSize = 32 // 모든 연산의 기준 크기
+		val squareSize = 30 // 모든 연산의 기준 크기
 
 		val DILATION_RADIUS = 1
 		val BLUR_RADIUS = 5f
 		val BRIDGE_STRENGTH = 1.2f // Base 레이어(다리)의 강도
 
 		val stretchedData = Array(squareSize) { IntArray(squareSize) }
-
 		for (y in 0 until squareSize) {
 			// 현재 픽셀 위치(y)가 원본 데이터의 어떤 인덱스(srcY)에 해당하는지 계산
 			// 32 x 18개의 데이터로 매핑
@@ -159,7 +278,6 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 			}
 		}
 
-		// 2. 적응형 팽창 (32x32 데이터 위에서 동작)
 		val dilatedData = applyAdaptiveDilation(stretchedData, DILATION_RADIUS)
 
 		// 3. 이중 레이어 스무딩 (끊어진 부위 메우기)
@@ -305,55 +423,73 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
 				usbIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
 					override fun onNewData(data: ByteArray) {
-//						Log.v("data", data.toHexString())
 						byteBuffer += data
 
 						while (true) {
-							// 1. 현재 헤더 (FF FE FF FE) 인덱스 탐색 및 버퍼 정렬
-							val syncIdx = findHeaderIndex(byteBuffer, 0)
-							if (syncIdx == -1) {
-								if (byteBuffer.size > 3) byteBuffer = byteBuffer.takeLast(3).toByteArray()
+							// 1. 첫 번째 헤더 찾기
+							val sync1 = findHeaderIndex(byteBuffer, 0)
+
+							if (sync1 == -1) {
+								// 헤더가 전혀 없으면 쓸모없는 데이터.
+								// 단, 헤더가 잘려서 들어오는 중일 수 있으니 마지막 3바이트만 남김
+								if (byteBuffer.size > 3) {
+									byteBuffer = byteBuffer.takeLast(3).toByteArray()
+								}
 								break
 							}
-							if (syncIdx > 0) byteBuffer = byteBuffer.copyOfRange(syncIdx, byteBuffer.size)
 
-							// 2. [핵심 로직] '다음 헤더'가 어디 있는지 탐색 (현재 헤더 길이 4바이트 이후부터)
-							val nextSyncIdx = findHeaderIndex(byteBuffer, 4)
-
-							// 3. 데이터 유실 감지: 다음 헤더가 PACKET_SIZE(71)보다 일찍 등장한 경우!
-							if (nextSyncIdx != -1 && nextSyncIdx < PACKET_SIZE) {
-								// 유실된 데이터 프레임입니다. 사용자가 제안한 대로 남은 부분을 0으로 채웁니다.
-								val fullPacket = ByteArray(PACKET_SIZE) // 기본적으로 모두 0으로 초기화됨
-								// 들어온 만큼만 복사 (나머지는 0으로 유지됨)
-								System.arraycopy(byteBuffer, 0, fullPacket, 0, nextSyncIdx)
-
-								// 데이터 파싱 진행 (0으로 채워진 불완전 패킷 처리)
-								parsePacketData(fullPacket)
-
-								// 버퍼를 '다음 헤더' 위치로 즉시 이동시켜 다음 프레임이 정상 작동하게 함
-								byteBuffer = byteBuffer.copyOfRange(nextSyncIdx, byteBuffer.size)
+							// 헤더 앞의 쓰레기값 제거 (버퍼를 헤더 시작점부터로 정렬)
+							if (sync1 > 0) {
+								byteBuffer = byteBuffer.copyOfRange(sync1, byteBuffer.size)
 								continue
 							}
 
-							// 4. 정상적인 경우: PACKET_SIZE 이상 데이터가 쌓였을 때
-							if (byteBuffer.size >= PACKET_SIZE) {
-								val fullPacket = byteBuffer.copyOfRange(0, PACKET_SIZE)
+							// --- 이제 byteBuffer[0] ~ [3]은 무조건 [FF FE FF FE] ---
 
-								// 정상 데이터 파싱 진행
+							// 2. 두 번째 헤더(다음 패킷의 시작점) 찾기 (최소 4바이트 이후부터 탐색)
+							val sync2 = findHeaderIndex(byteBuffer, 4)
+
+							if (sync2 == -1) {
+								// 다음 헤더가 아직 안 들어온 경우
+								if (byteBuffer.size < PACKET_SIZE) {
+									break
+								} else {
+									val fullPacket = byteBuffer.copyOfRange(0, PACKET_SIZE)
+									parsePacketData(fullPacket)
+									byteBuffer = byteBuffer.copyOfRange(PACKET_SIZE, byteBuffer.size)
+									continue
+								}
+							}
+
+							// --- 두 번째 헤더가 발견됨 ---
+							// sync2의 위치(index)가 곧 현재 패킷의 길이가 됩니다.
+
+							if (sync2 == PACKET_SIZE) {
+								val fullPacket = byteBuffer.copyOfRange(0, PACKET_SIZE)
 								parsePacketData(fullPacket)
 
-								// 처리된 패킷 버퍼에서 제거
+								// 처리한 67바이트를 버퍼에서 날리고, 두 번째 헤더부터 다시 루프 시작
 								byteBuffer = byteBuffer.copyOfRange(PACKET_SIZE, byteBuffer.size)
 
-							} else {
-								// 아직 데이터가 다 안 들어왔으므로 다음 수신을 기다림
-								break
+							} else if (sync2 < PACKET_SIZE) {
+								// 🚨 데이터 유실 감지! 67바이트가 다 안 모였는데 다음 프레임이 시작됨.
+//								Log.e("PacketSync", "패킷 유실 감지: ${sync2}바이트만 수신됨. 폐기!")
+
+								// 절대 억지로 이어붙이지 마세요! 앞부분을 버리고 새 헤더부터 다시 시작합니다.
+								byteBuffer = byteBuffer.copyOfRange(sync2, byteBuffer.size)
+
+							} else { // sync2 > PACKET_SIZE
+								// 🚨 노이즈 삽입 감지! 중간에 쓰레기 데이터가 끼어들어 패킷이 길어짐.
+//								Log.e("PacketSync", "노이즈 감지: 다음 헤더가 ${sync2} 위치에 있음. 폐기!")
+
+								// 역시 오염된 데이터를 버리고 새 헤더부터 다시 시작합니다.
+								byteBuffer = byteBuffer.copyOfRange(sync2, byteBuffer.size)
 							}
 						}
 					}
 					override fun onRunError(e: Exception) {
 						runOnUiThread { bd.tvContent.append("\n에러: ${e.message}") }
-						Log.getStackTraceString(e)
+						Log.e("에러임", "${e.printStackTrace()}")
 					}
 				})
 				usbIoManager?.start()
@@ -466,7 +602,18 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 	}
 
 	private fun parsePacketData(fullPacket: ByteArray) {
-		val frameData = fullPacket.copyOfRange(4, PACKET_SIZE) // 헤더 제외
+		if (fullPacket.size != PACKET_SIZE) {
+			Log.e("SensorData", "❌ Invalid packet size: ${fullPacket.size}")
+			return
+		}
+
+		if (fullPacket[0] != 0xFF.toByte() || fullPacket[1] != 0xFE.toByte() ||
+			fullPacket[2] != 0xFF.toByte() || fullPacket[3] != 0xFE.toByte()) {
+			Log.e("SensorData", "❌ Invalid header")
+			return
+		}
+
+		val frameData = fullPacket.copyOfRange(4, PACKET_SIZE)
 
 		val batLow = frameData[0].toInt() and 0xFF
 		val batHigh = frameData[1].toInt() and 0xFF
@@ -474,25 +621,56 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
 		val rowIndex = frameData[2].toInt() and 0xFF
 
-		if (rowIndex in 0..17) {
-			val sensorValues = IntArray(32)
-			for (i in 0 until 32) {
-				val low = frameData[3 + (i * 2)].toInt() and 0xFF
-				val high = frameData[3 + (i * 2) + 1].toInt() and 0xFF
-				val rawValue = ((high shl 8) or low).toShort().toInt()
+		if (rowIndex !in 0..17) {
+			Log.e("SensorData", "❌ Invalid row index: $rowIndex")
+			return
+		}
 
-				sensorValues[i] = if (rawValue < 0) 0 else rawValue
-			}
+		val sensorValues = IntArray(30)
+		var hasNonZeroValue = false
+		var nonZeroCount = 0  // 🔍 0이 아닌 값 개수 카운트
 
-			currentFrameData[rowIndex] = sensorValues
-			val battery = extractBatteryCapacity(fullPacket)
-			runOnUiThread {
-				bd.btnStop.text = "🪫 $battery% | 연결중지"
+		for (i in 0 until 30) {
+			val low = frameData[3 + (i * 2)].toInt() and 0xFF
+			val high = frameData[3 + (i * 2) + 1].toInt() and 0xFF
+			val rawValue = ((high shl 8) or low).toShort().toInt()
+
+			sensorValues[i] = if (rawValue < 0) 0 else rawValue
+
+			if (sensorValues[i] != 0) {
+				hasNonZeroValue = true
+				nonZeroCount++
 			}
-			if (rowIndex == 0) {
-//				displayFullFrame()
-				displayHeatmap()
+		}
+
+		currentFrameData[rowIndex] = sensorValues
+
+		// 🔍 모든 행에 대해 0이 아닌 값 통계 출력
+		Log.d("SensorStats", "Row $rowIndex: ${nonZeroCount}/30 non-zero values (Battery: $currentBattery%)")
+
+		if (hasNonZeroValue) {
+			Log.w("SensorData", "⚠️ Row $rowIndex has non-zero values:")
+			sensorValues.forEachIndexed { index, value ->
+				if (value != 0) {
+					Log.w("SensorData", "  [Col $index] = $value (0x${value.toString(16).uppercase()})")
+				}
 			}
+		}
+
+		val battery = extractBatteryCapacity(fullPacket)
+		runOnUiThread {
+			bd.btnStop.text = "🪫 $battery% | 연결중지"
+		}
+
+		if (rowIndex == 0) {
+			// 🔍 전체 프레임 통계 출력
+			var totalNonZero = 0
+			currentFrameData.forEach { (rowIndex, row) ->
+				totalNonZero += row.count { it != 0 }
+			}
+			Log.i("FrameStats", "━━━━━ 전체 프레임: $totalNonZero/540 non-zero values ━━━━━")
+
+			displayHeatmap()
 		}
 	}
 

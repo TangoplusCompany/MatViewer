@@ -1,12 +1,6 @@
-package com.tangoplus.matviewer.domain.uil
+package com.tangoplus.matviewer.domain.util
 
-import android.graphics.Bitmap
 import android.graphics.Color
-import android.renderscript.Allocation
-import android.renderscript.Element
-import android.renderscript.RenderScript
-import android.renderscript.ScriptIntrinsicBlur
-import androidx.core.graphics.createBitmap
 
 object HexUtil {
 	private val PREAMBLE = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0xFF.toByte(), 0xFE.toByte())
@@ -57,11 +51,11 @@ object HexUtil {
 
 	val colorLUT: IntArray = IntArray(256) { i ->
 		// [조절 파라미터] 구간 시작 지점 (0.0 ~ 1.0)
-		val NOISE_CUT = 5         // 10 미만은 무조건 투명 (끄트머리 투명화 반영)
-		val GREEN_START = 0.10f   // 옅고 흐릿한 녹색 시작점
-		val SOLID_GREEN_START = 0.25f // 쨍한 녹색 시작점
-		val YELLOW_START = 0.45f  // 노란색 시작점 (기존 0.4에서 0.5로 넓혀서 녹색->노랑 구간 확보)
-		val RED_START = 0.85f     // 빨간색 시작점 (노란색 주변 그라데이션 추가)
+		val NOISE_CUT = 10         // 10 미만은 무조건 투명 (끄트머리 투명화 반영)
+		val GREEN_START = 0.08f   // 옅고 흐릿한 녹색 시작점
+		val SOLID_GREEN_START = 0.22f // 쨍한 녹색 시작점
+		val YELLOW_START = 0.375f  // 노란색 시작점 (기존 0.4에서 0.5로 넓혀서 녹색->노랑 구간 확보)
+		val RED_START = 0.9f     // 빨간색 시작점 (노란색 주변 그라데이션 추가)
 
 		if (i < NOISE_CUT) return@IntArray Color.TRANSPARENT
 
@@ -170,7 +164,7 @@ object HexUtil {
 
 						if (ny in 0 until height && nx in 0 until width) {
 							val nVal = data[ny][nx]
-							// 유의미한 압력이 있는 이웃인지 확인 (예: 100 이상)
+
 							if (nVal > 30) {
 								activeNeighborCount++
 							}
@@ -186,15 +180,15 @@ object HexUtil {
 				val dynamicStrength = when (activeNeighborCount) {
 					// 이웃 중 밟힌 곳이 0~1개뿐임 -> 고립된 점 (발등 찍힘이나 노이즈)
 					// 강도를 0.15로 확 낮춰서 원형으로 뚱뚱해지는 것을 방지함
-					0, 1 -> 0.35f
+					0, 1 -> 0.15f
 
 					// 이웃 중 밟힌 곳이 2~3개임 -> 발날 같은 선(Line) 형태
 					// 강도를 중간(0.4)으로 주어 선의 길쭉한 형태를 유지하면서 살짝만 두꺼워지게 함
-					2, 3 -> 0.40f
+					2, 3 -> 0.325f
 
 					// 이웃 중 밟힌 곳이 4개 이상임 -> 발뒷꿈치/앞꿈치 같은 뭉친 면(Area) 형태
 					// 꽉 찬 압력이므로 강도를 높여(0.8) 넓고 부드러운 원형 그라데이션 형성
-					else -> 0.80f
+					else -> 0.75f
 				}
 
 				// 3. 최종 값 결정 (내 원래 값 vs 이웃 영향력 중 큰 값)
