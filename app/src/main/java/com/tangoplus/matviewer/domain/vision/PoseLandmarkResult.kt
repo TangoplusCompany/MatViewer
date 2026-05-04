@@ -1,4 +1,4 @@
-package com.tangoplus.facebeautyexpert.domain.vision.pose
+package com.tangoplus.matviewer.domain.vision
 
 data class PoseLandmarkResult(val landmarks: List<PoseLandmark>) {
 	data class PoseLandmark(

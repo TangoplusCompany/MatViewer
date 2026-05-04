@@ -39,6 +39,7 @@ dependencies {
 	implementation("com.github.mik3y:usb-serial-for-android:3.9.0")
 	implementation("com.google.mediapipe:tasks-vision:0.10.26")
 	implementation(libs.androidx.cardview)
+	implementation(libs.androidx.recyclerview)
 	val camera_version = "1.6.0"
 	implementation("androidx.camera:camera-core:$camera_version")
 	implementation("androidx.camera:camera-camera2:$camera_version")

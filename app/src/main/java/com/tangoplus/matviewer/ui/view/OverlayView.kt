@@ -3,78 +3,109 @@ package com.tangoplus.matviewer.ui.view
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PointF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
-import androidx.core.graphics.plus
-import androidx.core.graphics.times
 import androidx.core.graphics.toColorInt
-import com.tangoplus.facebeautyexpert.domain.vision.pose.PoseLandmarkResult
+import com.tangoplus.matviewer.domain.util.MathUtil.calculateSlope
+import com.tangoplus.matviewer.domain.vision.PoseLandmarkResult
+import com.tangoplus.matviewer.domain.vo.ButtonState
+import kotlin.math.hypot
 
 class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs) {
-	companion object {
-		const val VIDEO_STROKE_WIDTH = 5F
+	// 선 흔들림 감소
+	private val smoothedLandmarks = mutableMapOf<Int, PointF>()
+	private val ALPHA = 0.4f
+	private fun getSmoothedPoint(index: Int, rawX: Float, rawY: Float): PointF {
+		val prev = smoothedLandmarks[index]
+
+		if (prev == null) {
+			// 첫 프레임이면 일단 그대로 저장
+			val firstPoint = PointF(rawX, rawY)
+			smoothedLandmarks[index] = firstPoint
+			return firstPoint
+		}
+
+		// 핵심 로직: 이전 값과 현재 값의 비율을 섞어서 부드럽게 렌더링
+		val smoothedX = prev.x + ALPHA * (rawX - prev.x)
+		val smoothedY = prev.y + ALPHA * (rawY - prev.y)
+
+		prev.set(smoothedX, smoothedY) // 다음 프레임을 위해 저장
+		return prev
 	}
 
+	private var horizonWidth = 0f
 	private var results: PoseLandmarkResult? = null
 
-	private var linePaint = Paint()
-	private var axisPaint = Paint()
-	private var axisSubPaint = Paint()
-	private var borderPaint = Paint()
-	private var fillPaint = Paint()
-	private var textPaint = Paint()
-	private var circlePaint = Paint()
+	private var lineBgPaint = Paint()
+	private var lineAccentPaint = Paint()
+	private var circleBgPaint = Paint()
+	private var circleAccentPaint = Paint()
+
+	private val panelPaint = Paint()
+	private val textPaint = Paint()
+	private val normalStatusPaint = Paint()
+	private val warningStatusPaint = Paint()
 
 	private var scaleFactorX: Float = 1f
 	private var scaleFactorY : Float = 1f
 	private var imageWidth: Int = 1
 	private var imageHeight: Int = 1
 	private var currentRunningMode: RunningMode = RunningMode.IMAGE
+	private var currentBtnState : ButtonState = ButtonState.CENTER
 	init {
 		initPaints()
 	}
 
-
 	@SuppressLint("ResourceAsColor")
 	private fun initPaints() {
 		// -----! 연결선 색 !-----
-		linePaint.apply {
-			color = "#2EE88B".toColorInt()
-			strokeWidth = VIDEO_STROKE_WIDTH
-			style = Paint.Style.STROKE
-		}
-		axisPaint.apply {
-			color = "#FF5449".toColorInt()
-			strokeWidth = 3f
-			style = Paint.Style.STROKE
-		}
-		axisSubPaint.apply {
-			color = "#FF981D".toColorInt()
-			strokeWidth = 3f
-			style = Paint.Style.STROKE
-		}
-		// ------! 꼭짓점 색 !------
-		borderPaint = Paint().apply {
-			color = "#2EE88B".toColorInt() // 테두리 색
-			strokeWidth = 3f
-			style = Paint.Style.STROKE // 테두리만 그리기
-			isAntiAlias = true
-			setShadowLayer(10f, 0f, 0f, "#1A2EE88B".toColorInt()) // 반지름, x-offset, y-offset, 그림자 색상
-		}
-		fillPaint = Paint().apply {
-			color = "#FFFFFF".toColorInt() // 내부 색
-			style = Paint.Style.FILL // 내부만 채우기
-		}
-		textPaint = Paint().apply {
+		lineBgPaint.apply {
 			color = "#FFFFFF".toColorInt()
-			textSize = 48f
-			isAntiAlias = true
-			textAlign = Paint.Align.CENTER
+			strokeWidth = 7f
+			style = Paint.Style.STROKE
 		}
-		circlePaint = Paint().apply {
-			color = "#41000000".toColorInt()
+		lineAccentPaint.apply {
+			color = "#0DFF00".toColorInt()
+			strokeWidth = 3f
+			style = Paint.Style.STROKE
+		}
+		circleBgPaint.apply {
+			color = "#FFFFFF".toColorInt()
+			strokeWidth = 3f
+			style = Paint.Style.STROKE
+		}
+		circleAccentPaint.apply {
+			color = "#0DFF00".toColorInt()
+			strokeWidth = 3f
+			style = Paint.Style.FILL_AND_STROKE
+		}
+		panelPaint.apply {
+			color = Color.BLACK
+			alpha = 80 // 0~255 사이 값. 128은 약 50% 투명도
 			style = Paint.Style.FILL
+			isAntiAlias = true
+		}
+		textPaint.apply {
+			color = Color.WHITE
+			textSize = 36f // 태블릿 화면에 맞춘 크기 (필요시 조절)
+			typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+			isAntiAlias = true
+		}
+		normalStatusPaint.apply {
+			color = "#00E676".toColorInt() // 트렌디한 민트 그린
+			textSize = 32f // 태블릿 화면에 맞춘 크기 (필요시 조절)
+			typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+			isAntiAlias = true
+		}
+		warningStatusPaint.apply {
+			color = "#FF5252".toColorInt() // 시인성 높은 코랄 레드
+			textSize = 32f // 태블릿 화면에 맞춘 크기 (필요시 조절)
+			typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+			isAntiAlias = true
 		}
 	}
 
@@ -108,195 +139,286 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 			return
 		}
 
-		if (currentRunningMode == RunningMode.LIVE_STREAM) {
-			val offsetX = (width - imageWidth * scaleFactorX) / 2
-			val offsetY = (height - imageHeight * scaleFactorY) / 2
+		when (currentBtnState) {
+			ButtonState.CENTER -> {
+				val offsetX = (width - imageWidth * scaleFactorX) / 2
+				val offsetY = (height - imageHeight * scaleFactorY) / 2
 
-			landmarks.forEach { landmark ->
-				if (landmarks.indexOf(landmark) == 0 ||
-					landmarks.indexOf(landmark) in 11 .. 16 ||
-					landmarks.indexOf(landmark) in 23 .. 28
-				) {
-					canvas.drawCircle(
-						landmark.x * imageWidth * scaleFactorX + offsetX,
-						landmark.y * imageHeight * scaleFactorY + offsetY,
-						5f,
-						borderPaint
+				val l11 = landmarks.getOrNull(11)
+				val l12 = landmarks.getOrNull(12)
+				val l15 = landmarks.getOrNull(15)
+				val l16 = landmarks.getOrNull(16)
+				val l23 = landmarks.getOrNull(23)
+				val l24 = landmarks.getOrNull(24)
+
+
+				if (l11 != null && l12 != null) {
+					val midShoulderX = ((l11.x + l12.x) / 2) * imageWidth * scaleFactorX + offsetX
+					val midShoulderY = ((l11.y + l12.y) / 2) * imageHeight * scaleFactorY + offsetY
+					val l11X = l11.x * imageWidth * scaleFactorX + offsetX
+					val l11Y = l11.y * imageHeight * scaleFactorY + offsetY
+					val l12X = l12.x * imageWidth * scaleFactorX + offsetX
+					val l12Y = l12.y * imageHeight * scaleFactorY + offsetY
+					drawExtendedLine(
+						canvas,
+						l11X,
+						l11Y,
+						l12X,
+						l12Y,
+						100f,
+						100f,
+						lineBgPaint
 					)
-					canvas.drawCircle(
-						landmark.x * imageWidth * scaleFactorX + offsetX,
-						landmark.y * imageHeight * scaleFactorY + offsetY,
-						5f,
-						fillPaint
+					drawExtendedLine(
+						canvas,
+						l11X + 200,
+						midShoulderY,
+						l11X + 100,
+						midShoulderY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l12X - 100,
+						midShoulderY,
+						l12X - 200,
+						midShoulderY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+					canvas.drawCircle(midShoulderX, midShoulderY, 12f, circleAccentPaint)
+				}
+
+				if (l11 != null && l12 != null) {
+					val midShoulderX = ((l11.x + l12.x) / 2) * imageWidth * scaleFactorX + offsetX
+					val midShoulderY = ((l11.y + l12.y) / 2) * imageHeight * scaleFactorY + offsetY
+					val l11X = l11.x * imageWidth * scaleFactorX + offsetX
+					val l11Y = l11.y * imageHeight * scaleFactorY + offsetY
+					val l12X = l12.x * imageWidth * scaleFactorX + offsetX
+					val l12Y = l12.y * imageHeight * scaleFactorY + offsetY
+					drawExtendedLine(
+						canvas,
+						l11X,
+						l11Y,
+						l12X,
+						l12Y,
+						100f,
+						100f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l11X + 200,
+						midShoulderY,
+						l11X + 100,
+						midShoulderY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l12X - 100,
+						midShoulderY,
+						l12X - 200,
+						midShoulderY,
+						0f,
+						0f,
+						lineBgPaint
 					)
 				}
-			}
 
-			// 안전하게 특정 랜드마크 접근
-			val nose = landmarks.getOrNull(0)
-			val leftShoulder = landmarks.getOrNull(11)
-			val rightShoulder = landmarks.getOrNull(12)
-
-			// 코와 어깨 중간점 연결선 그리기 (모든 필요한 점이 있을 때만)
-			if (nose != null && leftShoulder != null && rightShoulder != null) {
-				val noseX = nose.x * imageWidth * scaleFactorX + offsetX
-				val noseY = nose.y * imageHeight * scaleFactorY + offsetY
-				val midShoulderX = (leftShoulder.x + rightShoulder.x) / 2 * imageWidth * scaleFactorX + offsetX
-				val midShoulderY = (leftShoulder.y + rightShoulder.y) / 2 * imageHeight * scaleFactorY + offsetY
-
-				canvas.drawLine(noseX, noseY, midShoulderX, midShoulderY, linePaint)
-			}
-
-			val connections = listOf(
-				// 몸통 + 팔
-				Pair(11, 12), Pair(11, 13), Pair(12, 14), Pair(13, 15), Pair(14, 16),
-				// Legs
-				Pair(11, 23), Pair(12, 24), Pair(23, 25), Pair(23, 24), Pair(24, 26), Pair(25, 27), Pair(26, 28),
-				// 다리
-				Pair(27, 31), Pair(28, 32), Pair(27, 29), Pair(28, 30),
-			)
-
-			connections.forEach { (start, end) ->
-				if (start < landmarks.size && end < landmarks.size) {
-					canvas.drawLine(
-						landmarks[start].x * imageWidth * scaleFactorX + offsetX,
-						landmarks[start].y * imageHeight * scaleFactorY + offsetY,
-						landmarks[end].x * imageWidth * scaleFactorX + offsetX,
-						landmarks[end].y * imageHeight * scaleFactorY + offsetY,
-						linePaint
+				if (l15 != null && l16 != null) {
+					val midWristX = ((l15.x + l16.x) / 2) * imageWidth * scaleFactorX + offsetX
+					val midWristY = ((l15.y + l16.y) / 2) * imageHeight * scaleFactorY + offsetY
+					val l15X = l15.x * imageWidth * scaleFactorX + offsetX
+					val l15Y = l15.y * imageHeight * scaleFactorY + offsetY
+					val l16X = l16.x * imageWidth * scaleFactorX + offsetX
+					val l16Y = l16.y * imageHeight * scaleFactorY + offsetY
+					drawExtendedLine(
+						canvas,
+						l15X,
+						l15Y,
+						l16X,
+						l16Y,
+						100f,
+						100f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l15X + 200,
+						midWristY,
+						l15X + 100,
+						midWristY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l16X - 100,
+						midWristY,
+						l16X - 200,
+						midWristY,
+						0f,
+						0f,
+						lineBgPaint
 					)
 				}
+
+				if (l23 != null && l24 != null) {
+					val midHipX = ((l23.x + l24.x) / 2) * imageWidth * scaleFactorX + offsetX
+					val midHipY = ((l23.y + l24.y) / 2) * imageHeight * scaleFactorY + offsetY
+					val l23X = l23.x * imageWidth * scaleFactorX + offsetX
+					val l23Y = l23.y * imageHeight * scaleFactorY + offsetY
+					val l24X = l24.x * imageWidth * scaleFactorX + offsetX
+					val l24Y = l24.y * imageHeight * scaleFactorY + offsetY
+					drawExtendedLine(
+						canvas,
+						l23X,
+						l23Y,
+						l24X,
+						l24Y,
+						100f,
+						100f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l23X + 200,
+						midHipY,
+						l23X + 100,
+						midHipY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+					drawExtendedLine(
+						canvas,
+						l24X - 100,
+						midHipY,
+						l24X - 200,
+						midHipY,
+						0f,
+						0f,
+						lineBgPaint
+					)
+				}
+				if (l11 != null && l12 != null && l15 != null && l16 != null && l23 != null && l24 != null) {
+					val wrist = calculateSlope(l15.x, l15.y, l16.x, l16.y)
+					val shoulder = calculateSlope(l11.x, l11.y, l12.x, l12.y)
+					val hip = calculateSlope(l23.x, l23.y, l24.x, l24.y)
+
+					drawSidePanel(canvas, wrist, shoulder ,hip )
+				}
+
+			}
+
+			ButtonState.LEFT -> {
+
+			}
+			ButtonState.RIGHT -> {
+
 			}
 		}
+	}
 
-		else { // video 일 때
+	fun setCurrentBtnState(btnState: ButtonState) {
+		currentBtnState = btnState
+	}
 
-			canvas.scale(1f, 1f, width / 2f, 0f)
-			val offsetX = (width - imageWidth * scaleFactorX) / 2
-			val offsetY = (height - imageHeight * scaleFactorY) / 2
+	fun drawExtendedLine(
+		canvas: Canvas,
+		x0: Float,
+		y0: Float,
+		x1: Float,
+		y1: Float,
+		startExtension: Float,
+		endExtension: Float,
+		paint: Paint,
+	) {
+		val dx = x1 - x0
+		val dy = y1 - y0
+		val length = hypot(dx.toDouble(), dy.toDouble()).toFloat()
 
-			// 안전하게 특정 랜드마크 접근
-			val nose = landmarks.getOrNull(0)
-			val leftShoulder = landmarks.getOrNull(11)
-			val rightShoulder = landmarks.getOrNull(12)
-			val leftIndex = landmarks.getOrNull(19)
-			val rightIndex = landmarks.getOrNull(20)
+		if (length == 0f) return
 
-			val leftHip = landmarks.getOrNull(23)
-			val rightHip = landmarks.getOrNull(24)
+		val nx = dx / length
+		val ny = dy / length
 
-			val leftKnee = landmarks.getOrNull(25)
-			val rightKnee = landmarks.getOrNull(26)
+		val extendedStartX = x0 - nx * startExtension
+		val extendedStartY = y0 - ny * startExtension
+		val extendedEndX = x1 + nx * endExtension
+		val extendedEndY = y1 + ny * endExtension
 
-			val leftAnkle = landmarks.getOrNull(27)
-			val rightAnkle = landmarks.getOrNull(28)
-			if (nose != null && leftShoulder != null && rightShoulder != null
-				&& leftIndex != null && rightIndex != null
-				&& leftHip != null && rightHip != null
-				&& leftKnee != null && rightKnee != null
-				&& leftAnkle != null && rightAnkle != null) {
-				val noseX = nose.x * scaleFactorX + offsetX
-				val noseY = nose.y * scaleFactorY + offsetY
-				val midShoulderX = (leftShoulder.x + rightShoulder.x) / 2 * scaleFactorX + offsetX
-				val midShoulderY = (leftShoulder.y + rightShoulder.y) / 2 * scaleFactorY + offsetY
-				val leftIndexX = leftIndex.x * scaleFactorX + offsetX
-				val leftIndexY = leftIndex.y * scaleFactorY + offsetY
-				val rightIndexX = rightIndex.x * scaleFactorX + offsetX
-				val rightIndexY = rightIndex.y * scaleFactorY + offsetY
+		paint.strokeCap = Paint.Cap.ROUND
+		canvas.drawLine(extendedStartX, extendedStartY, extendedEndX, extendedEndY, paint)
+	}
 
-				val leftHipX = leftHip.x * scaleFactorX + offsetX
-				val leftHipY = leftHip.y * scaleFactorY + offsetY
-				val rightHipX = rightHip.x * scaleFactorX + offsetX
-				val rightHipY = rightHip.y * scaleFactorY + offsetY
+	fun drawSidePanel(
+		canvas: Canvas,
+		wristAngle: Float,
+		shoulderAngle: Float,
+		pelvisAngle: Float
+	) {
+		val canvasWidth = canvas.width.toFloat()
+		val canvasHeight = canvas.height.toFloat()
 
-				val leftKneeX = leftKnee.x * scaleFactorX + offsetX
-				val leftKneeY = leftKnee.y * scaleFactorY + offsetY
-				val rightKneeX = rightKnee.x * scaleFactorX + offsetX
-				val rightKneeY = rightKnee.y * scaleFactorY + offsetY
+		// --- 1. 패널 레이아웃 계산 ---
+		val panelWidth = 450f
+		val panelHeight = 350f
+		val margin = 20f
 
-				val leftAnkleX = leftAnkle.x * scaleFactorX + offsetX
-				val leftAnkleY = leftAnkle.y * scaleFactorY + offsetY
-				val rightAnkleX = rightAnkle.x * scaleFactorX + offsetX
-				val rightAnkleY = rightAnkle.y * scaleFactorY + offsetY
-				canvas.drawLine(noseX, noseY, midShoulderX, midShoulderY, linePaint)
-				// 가로축
-				val extraLineWidth = 150
-				canvas.drawLine(leftIndexX + extraLineWidth  , leftIndexY, rightIndexX - extraLineWidth, rightIndexY, axisPaint)
-				canvas.drawLine(leftKneeX + extraLineWidth, leftKneeY, rightKneeX - extraLineWidth, rightKneeY, axisPaint)
-				canvas.drawLine(leftHipX + extraLineWidth, leftHipY, rightHipX - extraLineWidth, rightHipY, axisPaint)
-				canvas.drawLine(leftKneeX + extraLineWidth, leftKneeY, rightKneeX - extraLineWidth, rightKneeY, axisPaint)
-				canvas.drawLine((leftAnkleX + rightAnkleX) / 2, leftAnkleY + extraLineWidth, (leftAnkleX + rightAnkleX) / 2, noseY - extraLineWidth, axisPaint)
-				//세로축
-				canvas.drawLine(leftHipX, leftHipY - 100, leftHipX, leftAnkleY + 100, axisPaint)
-				canvas.drawLine(rightHipX, rightHipY - 100, rightHipX, rightAnkleY + 100, axisPaint)
-			}
-			val connections = listOf(
-				Pair(11, 13), Pair(12, 14), Pair(13, 15), Pair(14, 16),
-				Pair(15, 21), Pair(15, 17), Pair(17, 19), Pair(15, 19),
-				Pair(16, 22), Pair(16, 18), Pair(18, 20), Pair(16, 20),
-				Pair(11, 23), Pair(12, 24), Pair(23, 25), Pair(24, 26), Pair(25, 27), Pair(26, 28),
-				Pair(27, 31), Pair(28, 32), Pair(27, 29), Pair(28, 30),
-			)
-			connections.forEach { (start, end) ->
-				if (start < landmarks.size && end < landmarks.size) {
-					canvas.drawLine(
-						landmarks[start].x * scaleFactorX + offsetX,
-						landmarks[start].y  * scaleFactorY + offsetY,
-						landmarks[end].x * scaleFactorX + offsetX,
-						landmarks[end].y * scaleFactorY + offsetY,
-						linePaint
-					)
+		// 우측 상단 쪽에 배치 (정중앙보다 살짝 위가 시선 이동에 좋습니다)
+		val left = canvasWidth - panelWidth - margin
+		val top = margin + 0f // 화면 맨 위에서 살짝 내림
+		val right = canvasWidth - margin
+		val bottom = top + panelHeight
+		val cornerRadius = 20f
+
+		// --- 2. 반투명 배경 그리기 ---
+		canvas.drawRoundRect(left, top, right, bottom, cornerRadius, cornerRadius, panelPaint)
+
+		// --- 3. 텍스트 레이아웃 설정 ---
+		val startX = left + 40f  // 패널 왼쪽 안쪽 여백
+		var currentY = top + 80f // 첫 번째 줄 Y 좌표
+		val lineSpacing = 100f   // 줄 간격
+
+		fun drawRow(label: String, angle: Float, yPos: Float) {
+			canvas.drawText(label, startX, yPos, textPaint)
+			val threshold = 3f
+			val statusText: String
+			val statusPaint: Paint
+
+			when {
+				angle in -threshold..threshold -> {
+					statusText = "✅ 정상"
+					statusPaint = normalStatusPaint
+				}
+				angle < -threshold -> {
+					statusText = "↙️ 좌측 내려감"
+					statusPaint = warningStatusPaint
+				}
+				else -> {
+					statusText = "우측 내려감 ↘️"
+					statusPaint = warningStatusPaint
 				}
 			}
 
-			val subConnections = listOf(
-				Pair(11, 12), Pair(23, 24), Pair(25, 26)
-			)
-			subConnections.forEach { (start, end) ->
-				if (start < landmarks.size && end < landmarks.size) {
-					canvas.drawLine(
-						landmarks[start].x * scaleFactorX + offsetX,
-						landmarks[start].y  * scaleFactorY + offsetY,
-						landmarks[end].x * scaleFactorX + offsetX,
-						landmarks[end].y * scaleFactorY + offsetY,
-						axisSubPaint
-					)
-				}
-			}
-
-			val pointAccentRange = listOf(0, 11, 12, 23, 24, 25, 26)
-			val pointRange = listOf(13, 14, 15, 16, 27, 28)
-			pointAccentRange.forEach { index ->
-				val x = landmarks.getOrNull(index)?.x
-				val y = landmarks.getOrNull(index)?.y
-				if (x != null && y != null) {
-					canvas.drawCircle(
-						x * scaleFactorX + offsetX,
-						y * scaleFactorY + offsetY,
-						7f,
-						borderPaint)
-					canvas.drawCircle(
-						x * scaleFactorX + offsetX,
-						y* scaleFactorY + offsetY,
-						7f, fillPaint)
-				}
-			}
-			pointRange.forEach { index ->
-				val x =landmarks.getOrNull(index)?.x
-				val y =landmarks.getOrNull(index)?.y
-				if (x != null && y != null) {
-					canvas.drawCircle(
-						x * scaleFactorX + offsetX,
-						y * scaleFactorY + offsetY,
-						5f,
-						borderPaint)
-					canvas.drawCircle(
-						x * scaleFactorX + offsetX,
-						y * scaleFactorY + offsetY,
-						5f,
-						fillPaint)
-				}
-			}
+			canvas.drawText(statusText, startX + 160f, yPos, statusPaint)
 		}
+
+		// --- 5. 각 부위별 행 그리기 ---
+		drawRow("손목", wristAngle, currentY)
+		currentY += lineSpacing
+
+		drawRow("어깨", shoulderAngle, currentY)
+		currentY += lineSpacing
+
+		drawRow("골반", pelvisAngle, currentY)
 	}
 }

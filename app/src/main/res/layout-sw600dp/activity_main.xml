@@ -21,6 +21,15 @@
             android:layout_height="wrap_content"
             android:background="@color/black">
 
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvM"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                app:layout_constraintBottom_toTopOf="@+id/cardView"
+                app:layout_constraintEnd_toEndOf="@+id/cardView"
+                app:layout_constraintStart_toStartOf="@+id/cardView" />
+
             <TextView
                 android:id="@+id/tvContent"
                 android:layout_width="0dp"

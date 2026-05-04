@@ -53,19 +53,22 @@ import com.tangoplus.matviewer.domain.util.HexUtil.extractBatteryCapacity
 import com.tangoplus.matviewer.domain.util.HexUtil.findHeaderIndex
 import com.tangoplus.matviewer.domain.util.HexUtil.normalizeData
 import androidx.core.graphics.scale
+import androidx.recyclerview.widget.GridLayoutManager
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.tangoplus.facebeautyexpert.domain.vision.pose.PoseLandmarkerHelper
 import com.tangoplus.matexample.PoseLandmarkAdapter
 import com.tangoplus.matviewer.domain.util.PermissionUtil.register
 import com.tangoplus.matviewer.domain.util.PermissionUtil.requestPermission
 import com.tangoplus.matviewer.domain.util.PermissionUtil.showPermissionDeniedDialog
+import com.tangoplus.matviewer.domain.vo.ButtonState
+import com.tangoplus.matviewer.ui.adapter.ButtonRVAdapter
+import com.tangoplus.matviewer.ui.listener.OnButtonClickListener
 import com.tangoplus.matviewer.ui.view.OverlayView
 import com.tangoplus.matviewer.ui.vm.MainViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlin.math.min
 
-class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListener {
+class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListener, OnButtonClickListener {
 	private lateinit var bd: ActivityMainBinding
 	private val vm: MainViewModel by viewModels()
 	//  💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃
@@ -105,6 +108,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 			v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
 			insets
 		}
+
 		// 💃💃💃💃💃💃💃💃
 		register(
 			activity = this,
@@ -121,6 +125,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 			}
 		)
 		requestPermission(this)
+
 		// 👣👣👣👣👣👣👣👣
 		val filter = IntentFilter().apply {
 			addAction(ACTION_USB_PERMISSION) // 기존 권한 요청 액션
@@ -137,6 +142,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 		connectUsbAndRead()
 
 		bd.btnStop.setOnClickListener { stopReading() }
+		setAdapter()
 	}
 
 	//  💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃💃
@@ -171,16 +177,17 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
 	override fun onResults(resultBundle: PoseLandmarkerHelper.ResultBundle) {
 		runOnUiThread {
-			vm.pResult = PoseLandmarkAdapter.toCustomPoseLandmarkResult(resultBundle.results.first())
-			if (vm.pResult != null) {
-				bd.overlay.setResults(
-					vm.pResult!!,
-					resultBundle.inputImageWidth,
-					resultBundle.inputImageHeight,
-					OverlayView.RunningMode.LIVE_STREAM
-				)
-				bd.overlay.invalidate()
-			}
+			val rawResult = PoseLandmarkAdapter.toCustomPoseLandmarkResult(resultBundle.results.first())
+			vm.poseFilter.applyFilter(rawResult.landmarks)
+			vm.pResult = rawResult
+
+			bd.overlay.setResults(
+				vm.pResult!!,
+				resultBundle.inputImageWidth,
+				resultBundle.inputImageHeight,
+				OverlayView.RunningMode.LIVE_STREAM
+			)
+			bd.overlay.invalidate()
 		}
 	}
 
@@ -204,13 +211,13 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 		val cameraSelector =
 			CameraSelector.Builder().requireLensFacing(cameraFacing).build()
 
-		// 회전 정보 가져오기
 		val rotation = bd.viewFinder.display?.rotation ?: Surface.ROTATION_0
 		Log.d("RotationDebug", "Display Rotation: $rotation")
+		val isTablet = resources.configuration.smallestScreenWidthDp >= 600
+		val (widthh, heighth) = if (isTablet) Pair(1080, 1920) else Pair(1920, 1080)
 
-		// 미리보기 설정
 		preview = Preview.Builder()
-			.setTargetResolution(Size(1920, 1080))
+			.setTargetResolution(Size(widthh, heighth))
 			.setTargetRotation(rotation)
 			.build()
 
@@ -219,7 +226,7 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 
 		// 이미지 분석 설정
 		imageAnalyzer = ImageAnalysis.Builder()
-			.setTargetResolution(Size(1920, 1080))
+			.setTargetResolution(Size(widthh, heighth))
 			.setTargetRotation(rotation)
 			.setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
 			.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
@@ -255,6 +262,20 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 			)
 		}
 		imageProxy.close()
+	}
+
+	private fun setAdapter() {
+		val gridLm = GridLayoutManager(this@MainActivity, 3)
+		val rvAdapter = ButtonRVAdapter(this@MainActivity, vm)
+		rvAdapter.onButtonClickListener = this@MainActivity
+		bd.rvM.apply {
+			layoutManager = gridLm
+			adapter = rvAdapter
+		}
+	}
+
+	override fun onButtonClick(currentItem: ButtonState) {
+		vm.currentBtnState.value = currentItem
 	}
 
 	//  👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣👣
@@ -689,5 +710,6 @@ class MainActivity : AppCompatActivity(), PoseLandmarkerHelper.LandmarkerListene
 		rs.destroy()
 		return outBitmap
 	}
+
 
 }

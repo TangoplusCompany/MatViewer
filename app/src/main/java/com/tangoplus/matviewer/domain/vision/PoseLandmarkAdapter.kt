@@ -1,7 +1,7 @@
 package com.tangoplus.matexample
 
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
-import com.tangoplus.facebeautyexpert.domain.vision.pose.PoseLandmarkResult
+import com.tangoplus.matviewer.domain.vision.PoseLandmarkResult
 
 object PoseLandmarkAdapter {
 	fun toCustomPoseLandmarkResult(poseLandmarkerResult: PoseLandmarkerResult): PoseLandmarkResult {
