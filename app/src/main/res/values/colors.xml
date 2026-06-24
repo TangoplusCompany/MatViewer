@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#000000</color>
-    <color name="white">#FFFFFF</color>
-    <color name="sub600">#646464</color>
-    <color name="black60">#9A000000</color>
-    <color name="white20">#32FFFFFF</color>
-    <color name="ripple">#33FFFFFF</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="accent">#4B8EFF</color>
+    <color name="sub100">#F1F0F5</color>
+    <color name="sub200">#E3E2E7</color>
+    <color name="sub300">#C6C6CB</color>
+    <color name="sub400">#ABABB0</color>
+    <color name="sub500">#909095</color>
+    <color name="sub600">#76777B</color>
+    <color name="sub700">#5D5E63</color>
+    <color name="sub800">#2F3034</color>
+    <color name="sub900">#1A1B1F</color>
+
+    <color name="rippleColor">#33C6C6CB</color>
+    <color name="sub500_30">#4C909095</color>
+    <color name="mainRed">#FF2C4B</color>
+    <color name="deepRed">#D72440</color>
 </resources>
