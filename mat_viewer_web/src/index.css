@@ -1,3 +1,33 @@
+@import url("https://cdn.jsdelivr.net/gh/sun-typeface/SUITE@2/fonts/variable/woff2/SUITE-Variable.css");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'SUITE Variable', 'SUIT Variable', system-ui, -apple-system, sans-serif;
+  --font-bebas: 'Bebas Neue', sans-serif;
+  --color-accent: #3b82f6;
+  --color-comp-dark: #7A828A;
+
+  --color-red-400: #FF7474;
+  --color-red-500: #FF766C;
+  --color-red-600: #FF4A4A;
+  --color-red-800: #953442;
+
+  --color-orange-400: #FFD7A5;
+  --color-orange-500: #FFA546;
+  --color-orange-600: #FFA73A;
+  --color-orange-800: #CC7B1C;
+
+  --color-sub100: #F1F0F5;
+  --color-sub200: #E3E2E7;
+  --color-sub300: #C6C6CB;
+  --color-sub400: #ABABB0;
+  --color-sub500: #909095;
+  --color-sub600: #76777B;
+  --color-sub700: #5D5E63;
+  --color-sub800: #2F3034;
+  --color-sub900: #1A1B1F;
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
@@ -55,7 +85,6 @@
   max-width: 100%;
   margin: 0 auto;
   text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -108,4 +137,11 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+.a4-page {
+  width: 210mm;
+  /* height: 297mm;  */
+  margin: 0 auto;
+  background-color: #2F3034;
 }
