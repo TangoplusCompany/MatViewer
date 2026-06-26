@@ -38,8 +38,11 @@ android {
 dependencies {
 	implementation("com.github.mik3y:usb-serial-for-android:3.9.0")
 	implementation("io.github.jan-tennert.supabase:storage-kt:3.0.3")
-	implementation("io.ktor:ktor-client-android:2.3.11")
+	implementation("io.ktor:ktor-client-android:3.5.0")
+	implementation("io.ktor:ktor-client-logging:3.5.0")
+	implementation("io.ktor:ktor-client-content-negotiation:3.5.0")
 	implementation("com.google.zxing:core:3.5.4")
+	implementation("com.google.android.gms:play-services-location:21.3.0")
 //	implementation("com.google.mediapipe:tasks-vision:0.10.26")
 
 //	val camera_version = "1.6.0"

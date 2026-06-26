@@ -1,12 +1,14 @@
 package com.tangoplus.matviewer.ui
 
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -16,6 +18,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.os.Bundle
+import android.provider.Settings
 import android.renderscript.Allocation
 import android.renderscript.Element
 import android.renderscript.RenderScript
@@ -26,6 +29,7 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -43,6 +47,12 @@ import androidx.core.graphics.toColorInt
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import androidx.core.graphics.scale
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.tangoplus.matviewer.R
 import com.tangoplus.matviewer.databinding.ActivityMainBinding
 import com.tangoplus.matviewer.domain.util.InterfaceUtil.setOnSingleClickListener
@@ -54,6 +64,8 @@ class MainActivity : AppCompatActivity() {
 	private val ACTION_USB_PERMISSION = "com.tangoplus.matexample.USB_PERMISSION"
 	private val hvm : HeatmapViewModel by viewModels()
 	private lateinit var finalHeatmap : Bitmap
+	private lateinit var fusedLocationClient: FusedLocationProviderClient
+
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		enableEdgeToEdge()
@@ -74,6 +86,19 @@ class MainActivity : AppCompatActivity() {
 			addAction(UsbManager.ACTION_USB_DEVICE_DETACHED) // USB 뽑힘 감지
 		}
 		Log.v("커넥트시작", "connect시작")
+		val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+
+		Log.v("deviceId", "$deviceId")
+		// 위치 정보
+		fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+		// 2. 위치 권한이 있는지 확인 후 위도/경도 가져오기 함수 실행
+		if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+			preloadDeviceLocation()
+		} else {
+			ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1000)
+		}
+
 		// Android 14(API 34) 이상 타겟팅 시 RECEIVER_NOT_EXPORTED 플래그 필요할 수 있음
 		ContextCompat.registerReceiver(
 			this,
@@ -95,7 +120,7 @@ class MainActivity : AppCompatActivity() {
 		}
 
 		bd.btnDownload.setOnSingleClickListener {
-			setUploadAndDownloadProcess()
+			setUploadAndDownloadProcess(hvm.currentAddress)
 		}
 	}
 
@@ -608,30 +633,21 @@ class MainActivity : AppCompatActivity() {
 			canvas.drawText("${lbPercent}%", textLbX, textLbY, textPaint)
 			canvas.drawText("${rbPercent}%", textRbX, textRbY, textPaint)
 
-			val leftTotalPercent = ((leftWeight / totalWeight) * 100).roundToInt()
-			val rightTotalPercent = 100 - leftTotalPercent // 오차 방지를 위해 100에서 차감
-
-			val topTotalPercent = ((topWeight / totalWeight) * 100).roundToInt()
-			val bottomTotalPercent = 100 - topTotalPercent
-
 			val yellowTextPaint = Paint(textPaint).apply {
 				color = Color.WHITE
 				textSize = targetSize / 18f
 			}
 
-//			val outerSide0 = targetSize * 0.1f
-//			val outerSide1 = targetSize * 0.9f
-//			val midX = centerX * scaleFactor
-//			val midY = centerY * scaleFactor
-
 			val outerSide0 = targetSize * 0.1f
 			val outerSide1 = targetSize * 0.9f
 			val midAbsolute = targetSize * 0.5f
 
-			canvas.drawText("${leftTotalPercent}%", outerSide0, midAbsolute, yellowTextPaint)
-			canvas.drawText("${rightTotalPercent}%", outerSide1, midAbsolute, yellowTextPaint)
-			canvas.drawText("${topTotalPercent}%", midAbsolute, outerSide0, yellowTextPaint)
-			canvas.drawText("${bottomTotalPercent}%", midAbsolute, outerSide1, yellowTextPaint)
+			hvm.calculateRatio(leftWeight, topWeight, totalWeight )
+
+			canvas.drawText("${hvm.matRatio.left}%", outerSide0, midAbsolute, yellowTextPaint)
+			canvas.drawText("${hvm.matRatio.right}%", outerSide1, midAbsolute, yellowTextPaint)
+			canvas.drawText("${hvm.matRatio.top}%", midAbsolute, outerSide0, yellowTextPaint)
+			canvas.drawText("${hvm.matRatio.bottom}%", midAbsolute, outerSide1, yellowTextPaint)
 		}
 
 		runOnUiThread { bd.ivHeatmap.setImageBitmap(finalHeatmap) }
@@ -747,16 +763,75 @@ class MainActivity : AppCompatActivity() {
 		if (animatedDrawable is AnimatedVectorDrawable) animatedDrawable.stop()
 	}
 
-	private fun setUploadAndDownloadProcess () {
-		hvm.uploadHeatmap(finalHeatmap) { success, imageUrl ->
-			if (success && imageUrl != null) {
-				Toast.makeText(this, "업로드 완료!", Toast.LENGTH_SHORT).show()
+	private fun preloadDeviceLocation() {
+		try {
+			fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+				if (location != null) {
+					Log.v("위치 권한", "캐시된 위치 성공: $location")
+					hvm.getAddressString(this@MainActivity, location.latitude, location.longitude) { address ->
+						// 🎯 성공 시 뷰모델 변수에 주소 저장
+						hvm.currentAddress = address
+						Log.v("currentAddress", "기존 캐시에서 등록: ${hvm.currentAddress}")
+					}
+				} else {
+					Log.v("위치 권한", "캐시가 null이므로 실시간 위치를 요청합니다.")
+					requestCurrentLocation() // 🔴 실시간 요청 함수 호출
+				}
+			}
+		} catch (e: SecurityException) {
+			e.printStackTrace()
+		}
+	}
+	private fun requestCurrentLocation() {
+		val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
+			.setMaxUpdates(1) // 딱 한 번만 받고 업데이트 종료
+			.build()
 
-				val qrBitmap = generateQrCode(imageUrl)
+		try {
+			fusedLocationClient.requestLocationUpdates(
+				locationRequest,
+				object : LocationCallback() {
+					override fun onLocationResult(locationResult: LocationResult) {
 
+						val currentLoc = locationResult.lastLocation
+						Log.v("실시간 위치 콜백", "$currentLoc")
+						if (currentLoc != null) {
+							hvm.getAddressString(this@MainActivity, currentLoc.latitude, currentLoc.longitude) { address ->
+								// 🎯 성공 시 뷰모델 변수에 주소 저장
+								hvm.currentAddress = address
+								Log.v("currentAddress", "실시간으로 등록: ${hvm.currentAddress}")
+							}
+
+						} else {
+							Log.e("위치 권한", "실시간 위치 요청도 실패했습니다.")
+						}
+					}
+				},
+				mainLooper
+			)
+		} catch (e: SecurityException) {
+			e.printStackTrace()
+		}
+	}
+	// 2. 주소를 인자로 받아서 Supabase 업로드 및 최종 Vercel URL을 조립하는 함수
+	private fun setUploadAndDownloadProcess(address: String) {
+		hvm.uploadHeatmap(this@MainActivity ,finalHeatmap) { success, fileName ->
+			if (success && fileName != null) {
+				val vercelBaseUrl = getString(R.string.vercel_base_url)
+
+				// 전달받은 주소를 URL 규격에 맞게 안전하게 인코딩
+				val encodedAddress = java.net.URLEncoder.encode(address, "UTF-8")
+
+				// 🔗 최종 Vercel 배포 주소 완성!
+				val finalUrl = "$vercelBaseUrl?image=$fileName&location=$encodedAddress?ratio=${hvm.matRatio.toParamString()}"
+				val qrBottomSheet = QRCodeBottomSheetDialogFragment.newInstance(finalUrl)
+				qrBottomSheet.show(supportFragmentManager, qrBottomSheet.tag)
 			} else {
-				Toast.makeText(this, "실패: $imageUrl", Toast.LENGTH_LONG).show()
+				// 이미지 업로드 실패 처리
+				Log.e("이미지 업로드?", "$success")
+				Toast.makeText(this, "이미지 업로드에 실패했습니다.", Toast.LENGTH_SHORT).show()
 			}
 		}
 	}
+
 }
