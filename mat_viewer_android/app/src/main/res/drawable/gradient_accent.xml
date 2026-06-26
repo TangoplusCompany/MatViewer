@@ -4,10 +4,10 @@
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
             <gradient
-                android:startColor="@color/accent"
-                android:endColor="@color/sub300"
-                android:angle="-45"/>
-            <corners android:radius="64dp"/>
+                android:startColor="@color/sub400"
+                android:endColor="@color/sub200"
+                android:angle="90"/>
+            />
         </shape>
     </item>
 </ripple>

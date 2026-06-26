@@ -1,7 +1,7 @@
 package com.tangoplus.matviewer.ui
 
 import android.app.Application
-import com.tangoplus.matviewer.domain.supabase.SupabaseManager
+import com.tangoplus.matviewer.data.supabase.SupabaseManager
 
 class MyApp : Application() {
 	override fun onCreate() {

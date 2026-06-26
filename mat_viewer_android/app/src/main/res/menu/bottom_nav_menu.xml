@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/nav_connect"
+        android:icon="@drawable/ic_foot"
+        android:title="매트 연결" />
+
+    <item
+        android:id="@+id/nav_history"
+        android:icon="@drawable/ic_qr"
+        android:title="기록 보기" />
+
+
+</menu>

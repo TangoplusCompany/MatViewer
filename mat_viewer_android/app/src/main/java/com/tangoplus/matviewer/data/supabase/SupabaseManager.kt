@@ -1,4 +1,4 @@
-package com.tangoplus.matviewer.domain.supabase
+package com.tangoplus.matviewer.data.supabase
 
 import android.content.Context
 import com.tangoplus.matviewer.R

@@ -1,7 +1,8 @@
 plugins {
 	alias(libs.plugins.android.application)
-}
+	id("com.google.devtools.ksp")
 
+}
 android {
 	namespace = "com.tangoplus.matviewer"
 	compileSdk {
@@ -43,20 +44,19 @@ dependencies {
 	implementation("io.ktor:ktor-client-content-negotiation:3.5.0")
 	implementation("com.google.zxing:core:3.5.4")
 	implementation("com.google.android.gms:play-services-location:21.3.0")
-//	implementation("com.google.mediapipe:tasks-vision:0.10.26")
+	implementation(libs.androidx.recyclerview)
+	val roomVersion = "2.7.1" // 구형 환경 및 최신 환경 모두 호환성이 가장 좋은 안정 버전입니다.
+	implementation("androidx.room:room-runtime:$roomVersion")
+	implementation("androidx.room:room-ktx:$roomVersion")
+	implementation("androidx.room:room-rxjava2:$roomVersion")
+	ksp("androidx.room:room-compiler:$roomVersion")
 
-//	val camera_version = "1.6.0"
-//	implementation("androidx.camera:camera-core:$camera_version")
-//	implementation("androidx.camera:camera-camera2:$camera_version")
-//	implementation("androidx.camera:camera-lifecycle:$camera_version")
-//	implementation("androidx.camera:camera-video:$camera_version")
-//	implementation("androidx.camera:camera-extensions:$camera_version")
-//	implementation("androidx.camera:camera-view:$camera_version")
 	implementation(libs.androidx.cardview)
 	implementation(libs.androidx.core.ktx)
 	implementation(libs.androidx.appcompat)
 	implementation(libs.material)
 	implementation(libs.androidx.activity)
+	implementation(libs.androidx.fragment.ktx)
 	implementation(libs.androidx.constraintlayout)
 	testImplementation(libs.junit)
 	androidTestImplementation(libs.androidx.junit)

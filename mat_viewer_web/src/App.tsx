@@ -26,7 +26,7 @@ function App() {
     }
     return null
   })
-  
+  console.log(ratio)
   const [imageUrl] = useState<string>(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const imageName = searchParams.get('image') // 예: heatmap_20260626_104910@a24e9a9d097dd0b8.png

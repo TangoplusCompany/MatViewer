@@ -6,9 +6,10 @@ import android.location.Geocoder
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tangoplus.matviewer.domain.supabase.SupabaseManager
+import com.tangoplus.matviewer.data.supabase.SupabaseManager
 import com.tangoplus.matviewer.domain.vo.MatRatio
 import com.tangoplus.matviewer.ui.MainActivity
 import io.github.jan.supabase.storage.storage
@@ -18,13 +19,14 @@ import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.serialization.json.buildJsonObject
 import kotlin.math.roundToInt
 
 class HeatmapViewModel : ViewModel() {
 	var currentAddress: String = "위치 확인 불가 지역"
+	var currentLatitude : Double? = null
+	var currentLongitude : Double? = null
 	// 결과 콜백으로 생성된 파일명(String)을 반환하도록 변경
-	fun uploadHeatmap(activity: MainActivity, bitmap: Bitmap, onResult: (Boolean, String?) -> Unit) {
+	fun uploadHeatmap(activity: FragmentActivity, bitmap: Bitmap, onResult: (Boolean, String?) -> Unit) {
 		viewModelScope.launch(Dispatchers.IO) {
 			try {
 				// 1. 현재 시간을 기반으로 유니크한 파일명 생성
@@ -91,13 +93,36 @@ class HeatmapViewModel : ViewModel() {
 		private set
 
 	// 계산 로직은 뷰모델이 담당 (비즈니스 로직 분리)
-	fun calculateRatio(leftWeight: Float, topWeight: Float, totalWeight: Float) {
+	fun calculateRatio(
+		leftWeight: Float,
+		topWeight: Float,
+		ltWeight: Float,
+		lbWeight: Float,
+		rtWeight: Float,
+		rbWeight: Float,
+		totalWeight: Float) {
 		val left = ((leftWeight / totalWeight) * 100).roundToInt()
 		val right = 100 - left
 		val top = ((topWeight / totalWeight) * 100).roundToInt()
 		val bottom = 100 - top
-
-		matRatio = MatRatio(left, right, top, bottom)
+		val ltPercent = ((ltWeight / totalWeight) * 100).roundToInt()
+		val lbPercent = ((lbWeight / totalWeight) * 100).roundToInt()
+		val rtPercent = ((rtWeight / totalWeight) * 100).roundToInt()
+		val rbPercent = ((rbWeight / totalWeight) * 100).roundToInt()
+		matRatio = MatRatio(
+			left,
+			right,
+			top,
+			bottom,
+			ltPercent,
+			lbPercent,
+			rtPercent,
+			rbPercent
+		)
 	}
+
+
+	var capturedHitmap : Bitmap? = null
+	var isCaptured : Boolean = false
 
 }
