@@ -1,8 +1,5 @@
 package com.tangoplus.matviewer.domain.vo
 
-
-
-// 7개의 CoP 상대 좌표를 모아둔 클래스
 data class CenterOfPoint(
 	val leftTop: Pair<Float, Float>? = null,
 	val leftBottom: Pair<Float , Float>? = null,

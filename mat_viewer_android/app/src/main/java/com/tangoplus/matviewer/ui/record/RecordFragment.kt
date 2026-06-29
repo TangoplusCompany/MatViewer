@@ -6,6 +6,7 @@ import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.tangoplus.matviewer.data.db.MatDao
@@ -43,6 +44,17 @@ class RecordFragment : Fragment(), RecordSummaryItemClickListener
 					adapter = rvAdapter
 					layoutManager = lManager
 				}
+			}
+		}
+
+		bd.schLightMode.isChecked = AppCompatDelegate.getDefaultNightMode() != AppCompatDelegate.MODE_NIGHT_YES
+		bd.schLightMode.setOnCheckedChangeListener { _, isChecked ->
+			if (isChecked) {
+				// 스위치 On -> 다크모드 활성화
+				AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+			} else {
+				// 스위치 Off -> 라이트모드 활성화
+				AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
 			}
 		}
 	}

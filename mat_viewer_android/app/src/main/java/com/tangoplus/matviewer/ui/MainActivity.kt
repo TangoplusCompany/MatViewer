@@ -11,6 +11,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
@@ -31,9 +32,6 @@ class MainActivity : AppCompatActivity() {
 		super.onCreate(savedInstanceState)
 		enableEdgeToEdge()
 		bd = ActivityMainBinding.inflate(layoutInflater)
-
-//		val isTablet = resources.configuration.smallestScreenWidthDp >= 600
-//		requestedOrientation = if (isTablet) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
 
 		setContentView(bd.root)
 		ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
@@ -174,11 +172,7 @@ class MainActivity : AppCompatActivity() {
 			replace(R.id.flMain, fragment)
 			commit()
 		}
-
-		// 현재 상태 저장
 		previousTabId = itemId
 		selectedTabId = itemId
 	}
-
-
 }

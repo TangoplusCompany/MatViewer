@@ -1,12 +1,13 @@
 package com.tangoplus.matviewer.ui
 
 import android.app.Application
+import androidx.appcompat.app.AppCompatDelegate
 import com.tangoplus.matviewer.data.supabase.SupabaseManager
 
 class MyApp : Application() {
 	override fun onCreate() {
 		super.onCreate()
-		// 앱이 켜질 때 본인의 context를 넘겨서 안전하게 딱 한 번만 만듭니다.
+		AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
 		SupabaseManager.initialize(this)
 	}
 }
