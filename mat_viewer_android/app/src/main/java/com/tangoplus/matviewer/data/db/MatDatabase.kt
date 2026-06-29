@@ -4,12 +4,13 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 
 @Database(
 	entities = [MatRecord::class],
 	version = 1
 )
-
+@TypeConverters(CoPPairConverter::class)
 abstract class MatDatabase : RoomDatabase() {
 	abstract fun MatDao() : MatDao
 

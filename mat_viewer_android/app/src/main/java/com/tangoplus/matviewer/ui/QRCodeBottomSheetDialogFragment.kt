@@ -20,6 +20,7 @@ import com.tangoplus.matviewer.domain.util.FileUtil.saveBitmapToInternal
 import com.tangoplus.matviewer.ui.vm.HeatmapViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.Int
 
 class QRCodeBottomSheetDialogFragment : BottomSheetDialogFragment() {
@@ -76,16 +77,23 @@ class QRCodeBottomSheetDialogFragment : BottomSheetDialogFragment() {
 							location = hvm.currentAddress,
 							latitude = hvm.currentLatitude,
 							longitude = hvm.currentLongitude,
-							p_left = hvm.matRatio.left,
-							p_right = hvm.matRatio.right,
-							p_top = hvm.matRatio.top,
-							p_bottom = hvm.matRatio.bottom,
-							p_left_top = hvm.matRatio.leftTop,
-							p_left_bottom = hvm.matRatio.leftBottom,
-							p_right_top = hvm.matRatio.rightTop,
-							p_right_bottom = hvm.matRatio.rightBottom
+							p_left = hvm.syncedMatRatio.left,
+							p_right = hvm.syncedMatRatio.right,
+							p_top = hvm.syncedMatRatio.top,
+							p_bottom = hvm.syncedMatRatio.bottom,
+							p_left_top = hvm.syncedMatRatio.leftTop,
+							p_left_bottom = hvm.syncedMatRatio.leftBottom,
+							p_right_top = hvm.syncedMatRatio.rightTop,
+							p_right_bottom = hvm.syncedMatRatio.rightBottom,
+							centerOfPoint = hvm.syncedCop
 						)
 						mDao.insertMatRecord(newRecord)
+					}
+
+					withContext(Dispatchers.Main) {
+						hvm.syncedMatRatio.clear()
+						hvm.syncedCop.clear()
+						// TODO 위치에 관한건 앱이 종료되고 다시 키는게?
 					}
 				}
 			}

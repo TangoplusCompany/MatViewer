@@ -10,6 +10,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tangoplus.matviewer.data.supabase.SupabaseManager
+import com.tangoplus.matviewer.domain.vo.CenterOfPoint
 import com.tangoplus.matviewer.domain.vo.MatRatio
 import com.tangoplus.matviewer.ui.MainActivity
 import io.github.jan.supabase.storage.storage
@@ -91,8 +92,10 @@ class HeatmapViewModel : ViewModel() {
 	// 좌우 ratio
 	var matRatio: MatRatio = MatRatio()
 		private set
-
-	// 계산 로직은 뷰모델이 담당 (비즈니스 로직 분리)
+	var cop : CenterOfPoint = CenterOfPoint()
+		private set
+	var syncedMatRatio : MatRatio = MatRatio()
+	var syncedCop : CenterOfPoint = CenterOfPoint()
 	fun calculateRatio(
 		leftWeight: Float,
 		topWeight: Float,
@@ -121,8 +124,42 @@ class HeatmapViewModel : ViewModel() {
 		)
 	}
 
+	fun calculateRelativeCoP(
+		maxX: Float = 1f,
+		maxY: Float = 1f,
+
+		// 기존 데이터들
+		ltSumX: Float, ltSumY: Float, ltWeight: Float,
+		lbSumX: Float, lbSumY: Float, lbWeight: Float,
+		rtSumX: Float, rtSumY: Float, rtWeight: Float,
+		rbSumX: Float, rbSumY: Float, rbWeight: Float,
+		leftSumX: Float, leftSumY: Float, leftWeight: Float,
+		rightSumX: Float, rightSumY: Float, rightWeight: Float,
+		totalSumX: Float, totalSumY: Float, totalWeight: Float
+	) {
+
+		// 내부 유틸 함수: 무게가 있을 때만 0.0 ~ 1.0 사이의 상대 좌표 생성
+		fun toNormalPoint(sX: Float, sY: Float, w: Float): Pair<Float,Float>? {
+			return if (w > 0f) {
+				val rawX = sX / w
+				val rawY = sY / w
+				Pair(rawX / maxX, rawY / maxY)
+			} else null
+		}
+
+		cop = CenterOfPoint(
+			leftTop = toNormalPoint(ltSumX, ltSumY, ltWeight),
+			leftBottom = toNormalPoint(lbSumX, lbSumY, lbWeight),
+			rightTop = toNormalPoint(rtSumX, rtSumY, rtWeight),
+			rightBottom = toNormalPoint(rbSumX, rbSumY, rbWeight),
+			leftCenter = toNormalPoint(leftSumX, leftSumY, leftWeight),
+			rightCenter = toNormalPoint(rightSumX, rightSumY, rightWeight),
+			center = toNormalPoint(totalSumX, totalSumY, totalWeight)
+		)
+	}
 
 	var capturedHitmap : Bitmap? = null
+
 	var isCaptured : Boolean = false
 
 }

@@ -2,9 +2,12 @@ package com.tangoplus.matviewer.ui.record
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BlendMode
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.PointF
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -139,11 +142,74 @@ class ResultDialogFragment : DialogFragment() {
 							mResult.p_right_bottom?.let { canvas.drawText("${it}%", quarterRight, quarterRight, smallTextPaint) }
 
 							// 6. 만약 7개 CoP 점의 데이터(좌표)도 DB에서 가져왔다면 여기에 drawCoP 로직을 추가해 점을 얹어줍니다.
-							/*
-							val paint = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
-							// mResult에서 저장해 둔 cx, cy 좌표가 있다면 꺼내서 바로 그림
-							canvas.drawCircle(mResult.cop_total_x, mResult.cop_total_y, radius, paint)
-							*/
+							val baseRadius = targetSize / 60f
+
+							// 6-1. 상대 좌표를 targetSize 기준 픽셀 좌표(PointF)로 변환하는 유틸 함수
+							fun toCanvasPos(pair: Pair<Float, Float>?): PointF? {
+								// 상대 좌표가 null이 아니고 0,0이 아닐 때만 실제 좌표 생성
+								return if (pair != null && (pair.first > 0f || pair.second > 0f)) {
+									PointF(pair.first * targetSize, pair.second * targetSize)
+								} else null
+							}
+
+							val pLt = toCanvasPos(mResult.centerOfPoint.leftTop)
+							val pLb = toCanvasPos(mResult.centerOfPoint.leftBottom)
+							val pRt = toCanvasPos(mResult.centerOfPoint.rightTop)
+							val pRb = toCanvasPos(mResult.centerOfPoint.rightBottom)
+
+							val pLeft = toCanvasPos(mResult.centerOfPoint.leftCenter)
+							val pRight = toCanvasPos(mResult.centerOfPoint.rightCenter)
+
+							val pTotal = toCanvasPos(mResult.centerOfPoint.center)
+
+							val linePaint = Paint().apply {
+								style = Paint.Style.STROKE
+								strokeWidth = baseRadius * 0.15f
+								color = Color.WHITE
+								blendMode = BlendMode.DIFFERENCE
+								pathEffect = DashPathEffect(floatArrayOf(baseRadius * 0.5f, baseRadius * 0.5f), 0f)
+							}
+
+							fun drawDashedLine(p1: PointF?, p2: PointF?) {
+								if (p1 != null && p2 != null) {
+									canvas.drawLine(p1.x, p1.y, p2.x, p2.y, linePaint)
+								}
+							}
+
+// 점선 그리기 (원보다 아래 깔리도록 먼저 실행)
+							drawDashedLine(pLt, pRt)
+							drawDashedLine(pLb, pRb)
+							drawDashedLine(pLt, pLb)
+							drawDashedLine(pRt, pRb)
+							drawDashedLine(pLeft, pRight)
+
+// 6-3. 보색 반전 원(CoP) 그리기
+							val copPaint = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
+
+							fun drawCoPCircle(pos: PointF?, radius: Float) {
+								if (pos != null) {
+									copPaint.blendMode = BlendMode.DIFFERENCE
+									copPaint.color = Color.WHITE
+									canvas.drawCircle(pos.x, pos.y, radius, copPaint)
+								}
+							}
+
+// 원 그리기 수행
+							val rQuad = baseRadius * 0.7f
+							drawCoPCircle(pLt, rQuad)
+							drawCoPCircle(pLb, rQuad)
+							drawCoPCircle(pRt, rQuad)
+							drawCoPCircle(pRb, rQuad)
+
+							val rFoot = baseRadius * 0.9f
+							drawCoPCircle(pLeft, rFoot)
+							drawCoPCircle(pRight, rFoot)
+
+							val rTotal = baseRadius * 1.2f
+							drawCoPCircle(pTotal, rTotal)
+
+// 블렌드 모드 리셋
+							copPaint.blendMode = null
 
 							// 7. 최종 완성된 비트맵을 이미지뷰에 세팅
 							bd.ivRDHeatmap.setImageBitmap(outputBitmap)

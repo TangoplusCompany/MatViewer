@@ -9,9 +9,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BlendMode
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.PointF
 import android.graphics.drawable.AnimatedVectorDrawable
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
@@ -31,19 +34,16 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.activity.viewModels
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
-import androidx.core.graphics.toColorInt
 import androidx.fragment.app.activityViewModels
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY
 import com.hoho.android.usbserial.driver.CdcAcmSerialDriver
 import com.hoho.android.usbserial.driver.Ch34xSerialDriver
@@ -60,9 +60,10 @@ import com.tangoplus.matviewer.domain.util.InterfaceUtil.setOnSingleClickListene
 import com.tangoplus.matviewer.ui.QRCodeBottomSheetDialogFragment
 import com.tangoplus.matviewer.ui.vm.HeatmapViewModel
 import kotlin.getValue
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import androidx.core.view.isVisible
+import com.tangoplus.matviewer.ui.view.BalanceGaugeHelper
+import com.tangoplus.matviewer.ui.view.BalanceGaugeView
 
 
 class ConnectFragment : Fragment() {
@@ -71,6 +72,10 @@ class ConnectFragment : Fragment() {
 	private val hvm : HeatmapViewModel by activityViewModels()
 	private lateinit var finalHeatmap : Bitmap
 	private lateinit var fusedLocationClient: FusedLocationProviderClient
+	private val lrHelper = BalanceGaugeHelper(targetMs = 3000L)
+	private val tbHelper = BalanceGaugeHelper(targetMs = 3000L)
+	private var lastFrameTime = System.currentTimeMillis()
+
 	override fun onCreateView(
 		inflater: LayoutInflater, container: ViewGroup?,
 		savedInstanceState: Bundle?
@@ -78,7 +83,22 @@ class ConnectFragment : Fragment() {
 		bd = FragmentConnectBinding.inflate(inflater)
 		return bd.root
 	}
+	@Deprecated("Deprecated in Java")
+	override fun onRequestPermissionsResult(
+		requestCode: Int,
+		permissions: Array<out String>,
+		grantResults: IntArray
+	) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
+		if (requestCode == 1000) {
+			if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				requestCurrentLocation()
+			} else {
+				bd.tvContent.text = "위치 권한이 거부되어 기능을 사용할 수 없습니다."
+			}
+		}
+	}
 	override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 		super.onViewCreated(view, savedInstanceState)
 
@@ -108,20 +128,26 @@ class ConnectFragment : Fragment() {
 			ContextCompat.RECEIVER_NOT_EXPORTED
 		)
 		connectUsbAndRead()
-
+		bd.bgvLr.gaugeType = BalanceGaugeView.Type.LR
+		bd.bgvTb.gaugeType = BalanceGaugeView.Type.TB
 		bd.btnStop.setOnSingleClickListener {
 			androidx.appcompat.app.AlertDialog.Builder(requireContext())
 				.setTitle("종료 확인")
 				.setMessage("정말 읽기를 중단하시겠습니까?")
 				.setPositiveButton("확인") { _, _ ->
 					stopReading() // 사용자가 확인을 눌렀을 때만 실행
+					showWaitedUI()
 				}
 				.setNegativeButton("취소", null) // 취소를 누르면 창만 닫힘
 				.show()
 		}
 
 		bd.btnDownload.setOnSingleClickListener {
-			setUploadAndDownloadProcess(hvm.currentAddress)
+			if (isDataValid(squareSize = 32, rawHeight = 18)) {
+				setUploadAndDownloadProcess(hvm.currentAddress)
+			} else {
+				Toast.makeText(requireContext(), "매트 위에 올라서서 다시 눌러주세요", Toast.LENGTH_SHORT).show()
+			}
 		}
 		bd.tvContent.setOnClickListener { bd.tvContent.visibility = if (bd.tvContent.isVisible) View.INVISIBLE else View.VISIBLE }
 	}
@@ -517,37 +543,79 @@ class ConnectFragment : Fragment() {
 			val canvas = Canvas(finalHeatmap)
 			val scaleFactor = targetSize / squareSize.toFloat()
 
-			// --- [그리기 파트 1] CoP 점 7개 그리기 ---
+			// --- [그리기 파트 1] CoP 점 7개 및 연결선 그리기 ---
 			val paint = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
-			val drawCoP = { sX: Float, sY: Float, w: Float, radius: Float, colorHex: String ->
-				if (w > 0f) {
-					val cx = (sX / w) * scaleFactor
-					val cy = (sY / w) * scaleFactor
-					paint.color = Color.WHITE
-					canvas.drawCircle(cx, cy, radius * 1.3f, paint) // 흰색 테두리
-					paint.color = colorHex.toColorInt()
-					canvas.drawCircle(cx, cy, radius, paint)        // 내부 색상
+
+			// 1. 기준 반지름 및 선 스타일 설정
+			val baseRadius = targetSize / 60f
+			val linePaint = Paint().apply {
+				style = Paint.Style.STROKE
+				strokeWidth = baseRadius * 0.15f
+				color = Color.WHITE
+				blendMode = BlendMode.DIFFERENCE
+				pathEffect = DashPathEffect(floatArrayOf(baseRadius * 0.5f, baseRadius * 0.5f), 0f)
+			}
+
+			// 2. 각 포인터의 실제 화면 좌표(PointF) 계산 함수
+			fun getCanvasPos(sX: Float, sY: Float, w: Float): PointF? {
+				return if (w > 0f) PointF((sX / w) * scaleFactor, (sY / w) * scaleFactor) else null
+			}
+
+			// 3. 실제 그릴 화면 좌표들 미리 계산
+			val pLt = getCanvasPos(ltSumX, ltSumY, ltWeight)
+			val pLb = getCanvasPos(lbSumX, lbSumY, lbWeight)
+			val pRt = getCanvasPos(rtSumX, rtSumY, rtWeight)
+			val pRb = getCanvasPos(rbSumX, rbSumY, rbWeight)
+
+			val pLeft = getCanvasPos(leftSumX, leftSumY, leftWeight)
+			val pRight = getCanvasPos(rightSumX, rightSumY, rightWeight)
+
+			val pTotal = getCanvasPos(totalSumX, totalSumY, totalWeight)
+
+			// 4. 점선 그리기 유틸 함수 (둘 다 좌표가 존재할 때만 그림)
+			fun drawDashedLine(p1: PointF?, p2: PointF?) {
+				if (p1 != null && p2 != null) {
+					canvas.drawLine(p1.x, p1.y, p2.x, p2.y, linePaint)
 				}
 			}
 
-			val baseRadius = targetSize / 60f
+			// 5. 점선 그리기 수행 (원이 그려지기 전에 밑에 깔리도록 우선 실행)
+			drawDashedLine(pLt, pRt)
+			drawDashedLine(pLb, pRb)
+			drawDashedLine(pLt, pLb)
+			drawDashedLine(pRt, pRb)
 
-			// 4사분면(앞/뒤꿈치) - 하늘색
+			drawDashedLine(pLeft, pRight) // leftSumX-rightSumX
+
+//			drawDashedLine(pLt, pTotal) // lt-totalSum
+//			drawDashedLine(pLb, pTotal) // lb-totalSum
+//			drawDashedLine(pRt, pTotal) // rt-totalSum
+//			drawDashedLine(pRb, pTotal) // rb-totalSum
+
+			// 6. 원(CoP) 그리기 유틸 함수
+			fun drawCoPCircle(pos: PointF?, radius: Float) {
+				if (pos != null) {
+					paint.blendMode = BlendMode.DIFFERENCE
+					paint.color = Color.WHITE
+					canvas.drawCircle(pos.x, pos.y, radius, paint)
+				}
+			}
+
+			// 7. CoP 원 그리기 수행
 			val rQuad = baseRadius * 0.7f
-			drawCoP(ltSumX, ltSumY, ltWeight, rQuad, "#00FFFF")
-			drawCoP(lbSumX, lbSumY, lbWeight, rQuad, "#00FFFF")
-			drawCoP(rtSumX, rtSumY, rtWeight, rQuad, "#00FFFF")
-			drawCoP(rbSumX, rbSumY, rbWeight, rQuad, "#00FFFF")
+			drawCoPCircle(pLt, rQuad)
+			drawCoPCircle(pLb, rQuad)
+			drawCoPCircle(pRt, rQuad)
+			drawCoPCircle(pRb, rQuad)
 
-			// 좌우 각각의 중심 - 핑크색
-			val rFoot = baseRadius * 0.7f
-			drawCoP(leftSumX, leftSumY, leftWeight, rFoot, "#FF4081")
-			drawCoP(rightSumX, rightSumY, rightWeight, rFoot, "#FF4081")
+			val rFoot = baseRadius * 0.9f
+			drawCoPCircle(pLeft, rFoot)
+			drawCoPCircle(pRight, rFoot)
 
-			// 전체 중심 - 노란색
-			drawCoP(totalSumX, totalSumY, totalWeight, baseRadius * 1.0f, "#FFEB3B")
+			val rTotal = baseRadius * 1.1f
+			drawCoPCircle(pTotal, rTotal)
 
-			// --- [그리기 파트 2] 4사분면 퍼센트(%) 텍스트 그리기 ---
+			paint.blendMode = null
 
 			val ts = targetSize / 20f
 			val textPaint = Paint().apply {
@@ -588,6 +656,38 @@ class ConnectFragment : Fragment() {
 				rbWeight,
 				totalWeight
 			)
+			hvm.calculateRelativeCoP(
+				maxX = squareSize.toFloat(), // 가로 최대 크기 나침반
+				maxY = squareSize.toFloat(), // 세로 최대 크기 나침반
+
+				ltSumX = ltSumX, ltSumY = ltSumY, ltWeight = ltWeight,
+				lbSumX = lbSumX, lbSumY = lbSumY, lbWeight = lbWeight,
+				rtSumX = rtSumX, rtSumY = rtSumY, rtWeight = rtWeight,
+				rbSumX = rbSumX, rbSumY = rbSumY, rbWeight = rbWeight,
+				leftSumX = leftSumX, leftSumY = leftSumY, leftWeight = leftWeight,
+				rightSumX = rightSumX, rightSumY = rightSumY, rightWeight = rightWeight,
+				totalSumX = totalSumX, totalSumY = totalSumY, totalWeight = totalWeight
+			)
+
+			val now = System.currentTimeMillis()
+			val delta = now - lastFrameTime
+			lastFrameTime = now
+
+			val lrRatio = leftWeight / totalWeight * 100f
+			val tbRatio = topWeight  / totalWeight * 100f
+			val lrInRange = kotlin.math.abs(lrRatio - 50f) <= 3f
+			val tbInRange = kotlin.math.abs(tbRatio - 40f) <= 3f
+
+			val lrProgress = lrHelper.update(lrInRange, delta)
+			val tbProgress = tbHelper.update(tbInRange, delta)
+
+			requireActivity().runOnUiThread {
+				bd.bgvLr.setProgress(lrProgress)
+				bd.bgvTb.setProgress(tbProgress)
+			}
+
+
+
 			canvas.drawText("${hvm.matRatio.leftTop}%", textLtX, textLtY, textPaint)
 			canvas.drawText("${hvm.matRatio.leftBottom}%", textLbX, textLbY, textPaint)
 			canvas.drawText("${hvm.matRatio.rightTop}%", textRtX, textRtY, textPaint)
@@ -600,6 +700,37 @@ class ConnectFragment : Fragment() {
 		}
 
 		requireActivity().runOnUiThread { bd.ivHeatmap.setImageBitmap(finalHeatmap) }
+	}
+
+	private fun isDataValid(squareSize: Int, rawHeight: Int): Boolean {
+		var validCount = 0
+
+		for (y in 0 until squareSize) {
+			val srcY = (y * (rawHeight - 1).toFloat() / (squareSize - 1)).toInt()
+
+			// 해당 행(Row)의 IntArray 데이터를 먼저 가져옴
+			val rowData = currentFrameData[srcY]
+
+			// 만약 해당 행에 데이터가 아예 없다면 다음 행으로 넘어감
+			if (rowData == null) continue
+
+			for (x in 0 until squareSize) {
+				// Map에서 꺼낸 IntArray에서 x 인덱스의 값을 안전하게 가져옴
+				val value = rowData.getOrNull(x) ?: 0
+
+				// 5 이상 4096 이하의 유효한 값인지 체크
+				if (value in 5..4096) {
+					validCount++
+
+					// 4개 이상 만족하면 그 즉시 true 리턴하고 종료 (성능 최적화)
+					if (validCount >= 4) {
+						return true
+					}
+				}
+			}
+		}
+
+		return false
 	}
 
 	private val colorLUT: IntArray = IntArray(256) { i ->
@@ -720,6 +851,7 @@ class ConnectFragment : Fragment() {
 
 
 		bd.llbtn.visibility = View.GONE
+		bd.llBalance.visibility = View.GONE
 		val animatedDrawable = bd.ivUsb.drawable
 		if (animatedDrawable is AnimatedVectorDrawable) animatedDrawable.start()
 	}
@@ -727,6 +859,7 @@ class ConnectFragment : Fragment() {
 	private fun hideWaitedUI() {
 		bd.clHeatmapGuide.visibility = View.GONE
 		bd.llbtn.visibility = View.VISIBLE
+		bd.llBalance.visibility = View.VISIBLE
 		val animatedDrawable = bd.ivUsb.drawable
 		if (animatedDrawable is AnimatedVectorDrawable) animatedDrawable.stop()
 	}
@@ -769,7 +902,8 @@ class ConnectFragment : Fragment() {
 	// 2. 주소를 인자로 받아서 Supabase 업로드 및 최종 Vercel URL을 조립하는 함수
 	private fun setUploadAndDownloadProcess(address: String) {
 		hvm.isCaptured = true
-		val syncedRatio = hvm.matRatio
+		hvm.syncedMatRatio = hvm.matRatio
+		hvm.syncedCop = hvm.cop
 		hvm.uploadHeatmap(requireActivity() ,finalHeatmap) { success, fileName ->
 			if (success && fileName != null) {
 				val vercelBaseUrl = getString(R.string.vercel_base_url)
@@ -778,7 +912,7 @@ class ConnectFragment : Fragment() {
 				val encodedAddress = java.net.URLEncoder.encode(address, "UTF-8")
 
 				// 🔗 최종 Vercel 배포 주소 완성!
-				val finalUrl = "$vercelBaseUrl?image=$fileName&location=$encodedAddress&ratio=${syncedRatio.toParamString()}"
+				val finalUrl = "$vercelBaseUrl?image=$fileName&location=$encodedAddress&ratio=${hvm.syncedMatRatio.toParamString()}"
 				val qrBottomSheet = QRCodeBottomSheetDialogFragment.newInstance(finalUrl)
 				qrBottomSheet.show(requireActivity().supportFragmentManager, qrBottomSheet.tag)
 			} else {

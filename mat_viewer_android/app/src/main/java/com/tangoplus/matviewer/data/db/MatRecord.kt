@@ -1,7 +1,9 @@
 package com.tangoplus.matviewer.data.db
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.tangoplus.matviewer.domain.vo.CenterOfPoint
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,8 +24,11 @@ data class MatRecord(
 	val p_left_top : Int? = null,
 	val p_left_bottom: Int? = null,
 	val p_right_top : Int? = null,
-	val p_right_bottom: Int? = null
-) {
+	val p_right_bottom: Int? = null,
+
+	@Embedded val centerOfPoint: CenterOfPoint
+
+	) {
 	companion object {
 		fun getCurrentTime() : String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 	}
