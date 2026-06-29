@@ -32,7 +32,7 @@
             app:itemActiveIndicatorStyle="@style/App.CustomIndicator"
             app:itemIconTint="@color/bnb_icon_color"
             app:itemRippleColor="#1A4B8EFF"
-            app:itemTextColor="@color/white"
+            app:itemTextColor="@color/sub900"
             app:labelVisibilityMode="labeled"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"

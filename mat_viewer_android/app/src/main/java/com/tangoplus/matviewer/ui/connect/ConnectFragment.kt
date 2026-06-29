@@ -76,6 +76,10 @@ class ConnectFragment : Fragment() {
 	private val tbHelper = BalanceGaugeHelper(targetMs = 3000L)
 	private var lastFrameTime = System.currentTimeMillis()
 
+	// blur를 위한 전역변수
+	private var renderScript: RenderScript? = null
+	private var blurScript: ScriptIntrinsicBlur? = null
+
 	override fun onCreateView(
 		inflater: LayoutInflater, container: ViewGroup?,
 		savedInstanceState: Bundle?
@@ -101,7 +105,8 @@ class ConnectFragment : Fragment() {
 	}
 	override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 		super.onViewCreated(view, savedInstanceState)
-
+		renderScript = RenderScript.create(requireActivity())
+		blurScript = ScriptIntrinsicBlur.create(renderScript, Element.U8_4(renderScript))
 		val filter = IntentFilter().apply {
 			addAction(ACTION_USB_PERMISSION) // 기존 권한 요청 액션
 			addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED) // USB 꽂힘 감지
@@ -379,6 +384,8 @@ class ConnectFragment : Fragment() {
 	override fun onDestroy() {
 		super.onDestroy()
 		stopReading()
+		blurScript?.destroy()
+		renderScript?.destroy()
 		hvm.capturedHitmap = null
 		hvm.isCaptured = false
 	}
@@ -410,27 +417,32 @@ class ConnectFragment : Fragment() {
 		}
 		return -1
 	}
+//	private fun displayFullFrame() {
+//		val sb = StringBuilder()
+//		for (i in 0..17) {
+//			val rowData = currentFrameData[i]
+//			if (rowData != null) {
+//				// 4095가 최대값이므로 최소 4자리의 공간(padStart(4))을 확보합니다.
+//				sb.append(rowData.joinToString(" ") { it.toString().padStart(4, ' ') })
+//			} else {
+//				// 빈 데이터 영역도 4자리 표기(----)로 맞춥니다.
+//				sb.append(Array(32) { "----" }.joinToString(" "))
+//			}
+//			if (i < 17) {
+//				sb.append("\n")
+//			}
+//		}
+//		requireActivity().runOnUiThread {
+//			bd.tvContent.text = sb.toString()
+//		}
+//	}
 
-	private fun displayFullFrame() {
-		val sb = StringBuilder()
-		for (i in 0..17) {
-			val rowData = currentFrameData[i]
-			if (rowData != null) {
-				// 4095가 최대값이므로 최소 4자리의 공간(padStart(4))을 확보합니다.
-				sb.append(rowData.joinToString(" ") { it.toString().padStart(4, ' ') })
-			} else {
-				// 빈 데이터 영역도 4자리 표기(----)로 맞춥니다.
-				sb.append(Array(32) { "----" }.joinToString(" "))
-			}
-			if (i < 17) {
-				sb.append("\n")
-			}
-		}
-		requireActivity().runOnUiThread {
-			bd.tvContent.text = sb.toString()
-		}
-	}
+	// 프레임 전달 부드럽게
+	private val TARGET_FPS = 30
+	private val FRAME_INTERVAL_MS = 1000L / TARGET_FPS // ~28ms
+	private var smoothedFrameData = Array(18) { FloatArray(32) { 0f } }
 
+	private val ALPHA = 0.6f // 낮을수록 부드럽고 반응 느림, 높을수록 즉각적
 	private fun displayHeatmap() {
 		val rawHeight = 18
 		val squareSize = 32
@@ -441,10 +453,13 @@ class ConnectFragment : Fragment() {
 		for (y in 0 until squareSize) {
 			val srcY = (y * (rawHeight - 1).toFloat() / (squareSize - 1)).toInt()
 			for (x in 0 until squareSize) {
-				val value = currentFrameData[srcY]?.get(x) ?: 0
-				val safeValue = if (value > 4096 || value < 5) 0f else value.toFloat()
-				stretchedData[y][x] = safeValue
-				if (safeValue > maxVal) maxVal = safeValue
+				val raw = currentFrameData[srcY]?.get(x)?.toFloat() ?: 0f
+				val safe = if (raw > 4096 || raw < 5) 0f else raw
+
+				smoothedFrameData[srcY][x] = ALPHA * safe + (1f - ALPHA) * smoothedFrameData[srcY][x]
+
+				stretchedData[y][x] = smoothedFrameData[srcY][x]
+				if (stretchedData[y][x] > maxVal) maxVal = stretchedData[y][x]
 			}
 		}
 
@@ -467,7 +482,8 @@ class ConnectFragment : Fragment() {
 		val midBitmap = squareBitmap.scale(midSize, midSize)
 		val blurredMid = blurBitmap(midBitmap, 15f)
 
-		val targetSize = if (bd.ivHeatmap.width > 0) bd.ivHeatmap.width else 640
+//		val targetSize = if (bd.ivHeatmap.width > 0) bd.ivHeatmap.width else 640
+		val targetSize = 640
 		val finalScaled = blurredMid.scale(targetSize, targetSize)
 		val blurredFinal = blurBitmap(finalScaled, 10f) // 픽셀 깨짐만 한 번 더 잡아줌
 
@@ -768,17 +784,17 @@ class ConnectFragment : Fragment() {
 
 	private fun blurBitmap(bitmap: Bitmap, radius: Float): Bitmap {
 		val outBitmap = createBitmap(bitmap.width, bitmap.height)
-		val rs = RenderScript.create(requireActivity())
-		val blurScript = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs))
-		val allIn = Allocation.createFromBitmap(rs, bitmap)
-		val allOut = Allocation.createFromBitmap(rs, outBitmap)
+		val allIn = Allocation.createFromBitmap(renderScript, bitmap)
+		val allOut = Allocation.createFromBitmap(renderScript, outBitmap)
 
-		blurScript.setRadius(radius)
-		blurScript.setInput(allIn)
-		blurScript.forEach(allOut)
+		blurScript?.setRadius(radius)
+		blurScript?.setInput(allIn)
+		blurScript?.forEach(allOut)
 		allOut.copyTo(outBitmap)
 
-		rs.destroy()
+		allIn.destroy()
+		allOut.destroy()
+
 		return outBitmap
 	}
 
@@ -789,6 +805,7 @@ class ConnectFragment : Fragment() {
 		val b = (Color.blue(color1) + (Color.blue(color2) - Color.blue(color1)) * fraction).toInt()
 		return Color.argb(a, r, g, b)
 	}
+
 
 	private fun parsePacketData(fullPacket: ByteArray) {
 		val frameData = fullPacket.copyOfRange(4, PACKET_SIZE) // 헤더 제외
@@ -815,8 +832,11 @@ class ConnectFragment : Fragment() {
 				bd.tvBattery.text = "🪫 $battery%"
 			}
 			if (rowIndex == 0) {
-				displayFullFrame()
-				displayHeatmap()
+				val now = System.currentTimeMillis()
+				if (now - lastFrameTime >= FRAME_INTERVAL_MS) {
+					lastFrameTime = now
+					displayHeatmap()
+				}
 			}
 		}
 	}

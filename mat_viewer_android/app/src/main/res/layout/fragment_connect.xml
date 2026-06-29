@@ -116,8 +116,8 @@
 
                     <com.tangoplus.matviewer.ui.view.BalanceGaugeView
                         android:id="@+id/bgvLr"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="64dp"
+                        android:layout_height="48dp"
                         android:layout_marginTop="10dp"
                         android:layout_weight="1"
                         app:layout_constraintBottom_toBottomOf="parent"
@@ -147,8 +147,8 @@
 
                     <com.tangoplus.matviewer.ui.view.BalanceGaugeView
                         android:id="@+id/bgvTb"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="64dp"
+                        android:layout_height="48dp"
                         android:layout_marginTop="10dp"
                         android:layout_weight="1"
                         app:layout_constraintBottom_toBottomOf="parent"
@@ -176,7 +176,7 @@
                     android:layout_height="match_parent"
                     android:layout_marginStart="20dp"
                     android:layout_marginTop="10dp"
-                    android:layout_marginEnd="10dp"
+                    android:layout_marginEnd="5dp"
                     android:layout_marginBottom="10dp"
                     android:layout_weight="1"
                     android:background="@drawable/effect_12"
@@ -185,14 +185,14 @@
                     android:stateListAnimator="@null"
                     android:text="내 족압 이미지 다운로드"
                     android:textColor="@color/white"
-                    android:textSize="20sp"
+                    android:textSize="14sp"
                     android:textStyle="bold" />
 
                 <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btnStop"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="5dp"
                     android:layout_marginTop="10dp"
                     android:layout_marginEnd="20dp"
                     android:layout_marginBottom="10dp"
@@ -202,7 +202,7 @@
                     android:stateListAnimator="@null"
                     android:text="연결 중지"
                     android:textColor="@color/deepRed"
-                    android:textSize="20sp" />
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <androidx.cardview.widget.CardView
@@ -243,7 +243,7 @@
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toTopOf="parent"
-                        app:layout_constraintVertical_bias="0.35"
+                        app:layout_constraintVertical_bias="0.2"
                         app:srcCompat="@drawable/usb_animator" />
 
                     <TextView
@@ -254,7 +254,7 @@
                         android:gravity="center"
                         android:text="Tango Body 족압매트 USB 연결을 대기중입니다"
                         android:textColor="@color/sub600"
-                        android:textSize="20sp"
+                        android:textSize="16sp"
                         android:textStyle="bold"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintStart_toStartOf="parent"
@@ -269,7 +269,7 @@
                         android:layout_marginEnd="20dp"
                         android:text="기기에 USB를 연결한 후에 기기에 나오는 연결 대화상자에서 [허용] 버튼을 눌러주세요"
                         android:textColor="@color/sub500"
-                        android:textSize="16sp"
+                        android:textSize="13sp"
                         android:textStyle="bold"
                         app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintStart_toStartOf="parent"
